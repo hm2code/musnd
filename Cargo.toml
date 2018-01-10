@@ -1,0 +1,6 @@
+[package]
+name = "musnd"
+version = "0.1.0"
+authors = ["hm2code <hm2code@gmail.com>"]
+
+[dependencies]
