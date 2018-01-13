@@ -1,12 +1,15 @@
 //! MIDI support.
 
+// TODO: remove after implementing proper public interface
+#![allow(dead_code)]
+
 use std::convert::From;
 use std::io::{self, Read};
 use std::result;
 
-const MTHD_4CC: i32 = 0x4D546864; // 'MThd'
-const MTRK_4CC: i32 = 0x4D54726B; // 'MTrk'
-const HDR_SIZE: i32 = 6;          // size of the MIDI file header
+const MTHD_4CC: u32 = 0x4D546864; // 'MThd'
+const MTRK_4CC: u32 = 0x4D54726B; // 'MTrk'
+const HDR_SIZE: u32 = 6;          // size of the MIDI file header
 
 /// A specialized `Result` type for MIDI operations.
 pub type Result<T> = result::Result<T, Error>;
@@ -19,7 +22,7 @@ pub enum Error {
 
     /// If Variable-Length Quantity sequence is malformed (i.e. too long).
     /// Contains the malformed VLQ.
-    BadVlq(i32),
+    BadVlq(u32),
 
     /// If MIDI file header is malformed.
     BadFileHeader,
@@ -34,38 +37,35 @@ impl From<io::Error> for Error {
     }
 }
 
-/// Low-level MIDI file reader that uses an `std::io::Read` trait
-/// implementation as the data source.
-///
-/// All `read` methods follow the same contract:
-///
-/// * Return `Error::Io` if the the data source reported an `std::io::Error`.
-/// The reported `std::io::ErrorKind` can be found in the returned error value.
-/// * Returns a data object specific error if the resulting data object is
-/// malformed, e.g. `Error::BadVlq`.
-/// * Return the data object on success.
-///
-/// There is no guarantee that the data in the data source will remain intact
-/// if a `read` method returned an error.
-pub struct Reader<R: Read> {
+// Low-level MIDI file reader that uses an `std::io::Read` trait
+// implementation as the data source.
+//
+// All `read` methods follow the same contract:
+//
+// * Return `Error::Io` if the the data source reported an `std::io::Error`.
+// The reported `std::io::ErrorKind` can be found in the returned error value.
+// * Returns a data object specific error if the resulting data object is
+// malformed, e.g. `Error::BadVlq`.
+// * Return the data object on success.
+//
+// There is no guarantee that the data in the data source will remain intact
+// if a `read` method returned an error.
+struct Reader<R: Read> {
     r: R,
 }
 
 impl<R: Read> Reader<R> {
-    /// Creates a new `Reader` that will be reading from 'r'.
-    pub fn new(r: R) -> Reader<R> {
+    fn new(r: R) -> Reader<R> {
         Reader { r }
     }
 
-    /// Reads a single byte from the data source.
-    pub fn read_u8(&mut self) -> Result<u8> {
+    fn read_u8(&mut self) -> Result<u8> {
         let mut buf = [0; 1];
         self.r.read_exact(&mut buf)?;
         Ok(buf[0])
     }
 
-    /// Reads 16-bit unsigned integer from the data source.
-    pub fn read_u16(&mut self) -> Result<u16> {
+    fn read_u16(&mut self) -> Result<u16> {
         let mut buf = [0; 2];
         self.r.read_exact(&mut buf)?;
         Ok(
@@ -74,27 +74,26 @@ impl<R: Read> Reader<R> {
         )
     }
 
-    /// Reads 32-bit signed integer from the data source.
-    pub fn read_i32(&mut self) -> Result<i32> {
+    fn read_u32(&mut self) -> Result<u32> {
         let mut buf = [0; 4];
         self.r.read_exact(&mut buf)?;
         Ok(
-            (buf[0] as i32) << 24 |
-            (buf[1] as i32) << 16 |
-            (buf[2] as i32) <<  8 |
-            (buf[3] as i32)
+            (buf[0] as u32) << 24 |
+            (buf[1] as u32) << 16 |
+            (buf[2] as u32) <<  8 |
+            (buf[3] as u32)
         )
     }
 
-    /// Reads a Variable-Length Quantity from the data source. Returns
-    /// `Error::BadVlq` if the data is malformed. The malformed VLQ can be
-    /// recovered from the error.
-    pub fn read_vlq(&mut self) -> Result<i32> {
+    // Reads a Variable-Length Quantity from the data source. Returns
+    // `Error::BadVlq` if the data is malformed. The malformed VLQ can be
+    // recovered from the error.
+    fn read_vlq(&mut self) -> Result<u32> {
         let mut value = 0;
         for _ in 0..4 {
             let byte = self.read_u8()?;
             let data = byte & 0b0111_1111;
-            value = (value << 7) | data as i32;
+            value = (value << 7) | data as u32;
             if byte == data {
                 return Ok(value)
             }
@@ -102,57 +101,28 @@ impl<R: Read> Reader<R> {
         Err(Error::BadVlq(value))
     }
 
-    /// Reads MIDI file header from the data source.
-    /// Returns `Error::BadFileHeader` if the data is malformed.
-    pub fn read_file_hdr(&mut self) -> Result<FileHeader> {
-        if self.read_i32()? != MTHD_4CC {
+    // Reads MIDI file header and returns raw data as it appears in the header:
+    //
+    // `(format, number_of_tracks, division)`
+    //
+    // Returns `Error::BadFileHeader` if the data is malformed.
+    fn read_file_hdr(&mut self) -> Result<(u16, u16, u16)> {
+        if self.read_u32()? != MTHD_4CC || self.read_u32()? != HDR_SIZE {
             return Err(Error::BadFileHeader);
         }
 
-        if self.read_i32()? != HDR_SIZE {
-            return Err(Error::BadFileHeader);
-        }
-
-        let format = self.read_u16()?;
-        if format > 2 {
-            return Err(Error::BadFileHeader);
-        }
-
-        let num_of_tracks = self.read_u16()?;
-        if num_of_tracks == 0 || num_of_tracks > 1 && format == 0 {
-            return Err(Error::BadFileHeader);
-        }
-
-        let division = self.read_u16()?;
-        if division == 0 {
-            return Err(Error::BadFileHeader);
-        }
-
-        Ok(FileHeader { format, num_of_tracks, division })
+        Ok((self.read_u16()?, self.read_u16()?, self.read_u16()?))
     }
 
-    /// Reads MIDI file track header and returns length of the track data.
-    /// Returns `Error::BadTrackHeader` if the header data is malformed.
-    pub fn read_track_hdr(&mut self) -> Result<usize> {
-        if self.read_i32()? != MTRK_4CC {
+    // Reads MIDI file track header and returns length of the track data.
+    // Returns `Error::BadTrackHeader` if the header data is malformed.
+    fn read_track_hdr(&mut self) -> Result<u32> {
+        if self.read_u32()? != MTRK_4CC {
             return Err(Error::BadTrackHeader);
         }
 
-        Ok((self.read_i32()? as u32) as usize)
+        Ok(self.read_u32()?)
     }
-}
-
-/// MIDI file header.
-#[derive(Debug)]
-pub struct FileHeader {
-    /// MIDI file format. TODO: enum
-    pub format: u16,
-
-    /// Number of tracks within the file.
-    pub num_of_tracks: u16,
-
-    /// The time division. TODO: enum
-    pub division: u16,
 }
 
 #[cfg(test)]
@@ -214,7 +184,7 @@ mod reader_tests {
     }
 
     #[test]
-    fn read_i32() {
+    fn read_u32() {
         let data = [
             0x12, 0x34, 0x56, 0x78,
             b'M', b'T', b'h', b'd',
@@ -223,20 +193,20 @@ mod reader_tests {
         let bytes = &data[..];
         let mut reader = Reader::new(bytes);
 
-        assert_eq!(reader.read_i32().unwrap(), 0x12345678);
-        assert_eq!(reader.read_i32().unwrap(), MTHD_4CC);
-        assert_eq!(reader.read_i32().unwrap(), MTRK_4CC);
-        assert_eq!(reader.read_i32().unwrap_err(),
+        assert_eq!(reader.read_u32().unwrap(), 0x12345678);
+        assert_eq!(reader.read_u32().unwrap(), MTHD_4CC);
+        assert_eq!(reader.read_u32().unwrap(), MTRK_4CC);
+        assert_eq!(reader.read_u32().unwrap_err(),
                    Error::Io(io::ErrorKind::UnexpectedEof));
     }
 
     #[test]
-    fn read_i32_fails_on_incomplete() {
+    fn read_u32_fails_on_incomplete() {
         let data = [0x12, 0x34, 0x56];
         let bytes = &data[..];
         let mut reader = Reader::new(bytes);
 
-        assert_eq!(reader.read_i32().unwrap_err(),
+        assert_eq!(reader.read_u32().unwrap_err(),
                    Error::Io(io::ErrorKind::UnexpectedEof));
     }
 
@@ -335,11 +305,11 @@ mod reader_tests {
         let bytes = &data[..];
         let mut reader = Reader::new(bytes);
 
-        let hdr = reader.read_file_hdr().unwrap();
+        let (format, num_of_tracks, division) = reader.read_file_hdr().unwrap();
 
-        assert_eq!(hdr.format, 0);
-        assert_eq!(hdr.num_of_tracks, 1);
-        assert_eq!(hdr.division, 96);
+        assert_eq!(format, 0);
+        assert_eq!(num_of_tracks, 1);
+        assert_eq!(division, 96);
     }
 
     #[test]
@@ -365,66 +335,6 @@ mod reader_tests {
             0x00, 0x00,
             0x00, 0x01,
             0x00, 0x60,
-        ];
-        let bytes = &data[..];
-        let mut reader = Reader::new(bytes);
-
-        assert_eq!(reader.read_file_hdr().unwrap_err(), Error::BadFileHeader);
-    }
-
-    #[test]
-    fn read_file_hdr_fails_on_bad_format() {
-        let data = [
-            0x4D, 0x54, 0x68, 0x64,
-            0x00, 0x00, 0x00, 0x06,
-            0x00, 0x03,
-            0x00, 0x01,
-            0x00, 0x60,
-        ];
-        let bytes = &data[..];
-        let mut reader = Reader::new(bytes);
-
-        assert_eq!(reader.read_file_hdr().unwrap_err(), Error::BadFileHeader);
-    }
-
-    #[test]
-    fn read_file_hdr_fails_on_zero_tracks() {
-        let data = [
-            0x4D, 0x54, 0x68, 0x64,
-            0x00, 0x00, 0x00, 0x06,
-            0x00, 0x00,
-            0x00, 0x00,
-            0x00, 0x60,
-        ];
-        let bytes = &data[..];
-        let mut reader = Reader::new(bytes);
-
-        assert_eq!(reader.read_file_hdr().unwrap_err(), Error::BadFileHeader);
-    }
-
-    #[test]
-    fn read_file_hdr_fails_on_too_many_tracks() {
-        let data = [
-            0x4D, 0x54, 0x68, 0x64,
-            0x00, 0x00, 0x00, 0x06,
-            0x00, 0x00,
-            0x00, 0x02,
-            0x00, 0x60,
-        ];
-        let bytes = &data[..];
-        let mut reader = Reader::new(bytes);
-
-        assert_eq!(reader.read_file_hdr().unwrap_err(), Error::BadFileHeader);
-    }
-
-    #[test]
-    fn read_file_hdr_fails_on_zero_division() {
-        let data = [
-            0x4D, 0x54, 0x68, 0x64,
-            0x00, 0x00, 0x00, 0x06,
-            0x00, 0x00,
-            0x00, 0x01,
-            0x00, 0x00,
         ];
         let bytes = &data[..];
         let mut reader = Reader::new(bytes);
