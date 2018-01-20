@@ -41,6 +41,7 @@ impl fmt::Display for Pair {
 }
 
 /// An immutable sequence of `Pair` elements in time increasing order.
+///
 /// The following is true for any `Seq`:
 ///
 /// * The length is two or greater.
@@ -186,6 +187,7 @@ const TIME_NOT_INCREASING_ERR_MSG: &str =
     "time is not increasing";
 
 /// Error returned from `SeqBuilder::try_push` method.
+///
 /// Each variant contains a `Pair` that caused the error.
 #[derive(Debug, PartialEq)]
 pub enum SeqError {
