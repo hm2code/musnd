@@ -7,10 +7,8 @@ use std::ops::{Add, Sub};
 use std::str::FromStr;
 
 /// Represents a `Pitch` parsing error.
-///
-/// Enclosed value is the string that could not be parsed.
 #[derive(Debug, PartialEq)]
-pub struct ParsePitchError(pub String);
+pub struct ParsePitchError(String);
 
 impl<'a> From<&'a str> for ParsePitchError {
     fn from(s: &'a str) -> Self {
@@ -665,8 +663,10 @@ mod pitch_tests {
         assert_eq!(Pitch::from_freq(8.176).unwrap().0, Pitch::MIN_VAL);
         assert_eq!(Pitch::from_freq(12543.9).unwrap().0, Pitch::MAX_VAL);
 
-        assert_eq!(Pitch::from_freq(8.0).unwrap().0, Pitch::MIN_VAL);
-        assert_eq!(Pitch::from_freq(12900.0).unwrap().0, Pitch::MAX_VAL);
+        assert_eq!(Pitch::from_freq(Pitch::MIN_FREQ).unwrap().0,
+                   Pitch::MIN_VAL);
+        assert_eq!(Pitch::from_freq(Pitch::MAX_FREQ).unwrap().0,
+                   Pitch::MAX_VAL);
     }
 
     #[test]
