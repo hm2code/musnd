@@ -4,49 +4,29 @@ use std::convert::From;
 use std::fmt;
 use std::mem;
 use std::ops::{Add, Sub};
+use std::result;
 use std::str::FromStr;
 
-/// Represents a `Pitch` parsing error.
+/// Specialized `Result` type for pitch operations.
+pub type Result<T> = result::Result<T, Error>;
+
+/// Contains errors reported by this module.
 #[derive(Debug, PartialEq)]
-pub struct ParsePitchError(String);
+pub enum Error {
+    /// Indicates a pitch parse error.
+    ///
+    /// Enclosed is the string that cannot be parsed.
+    Parse(String),
 
-impl<'a> From<&'a str> for ParsePitchError {
-    fn from(s: &'a str) -> Self {
-        ParsePitchError(format!("Cannot parse pitch: {}", s))
-    }
-}
+    /// Indicates a pitch out of range error.
+    ///
+    /// Enclosed is the number that cannot be converted into a pitch.
+    OutOfRange(i32),
 
-impl fmt::Display for ParsePitchError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-/// Represents an error indicating that `Pitch` cannot be created from a number
-/// because the number is out of range.
-///
-/// Enclosed value is the number that could not be converted into `Pitch`.
-#[derive(Debug, PartialEq)]
-pub struct PitchOutOfRangeError(pub i32);
-
-impl fmt::Display for PitchOutOfRangeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Pitch is out of range: {}", self.0)
-    }
-}
-
-/// Represents an error indicating that `Pitch` cannot be created from a
-/// frequency because the frequency is not positive or it corresponds to a
-/// pitch that is out of supported range.
-///
-/// Enclosed value is the frequency that could not be converted into `Pitch`.
-#[derive(Debug, PartialEq)]
-pub struct PitchFreqOutOfRangeError(pub f32);
-
-impl fmt::Display for PitchFreqOutOfRangeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Pitch frequency is out of range: {}", self.0)
-    }
+    /// Indicates a frequency out of range error.
+    ///
+    /// Enclosing is the frequency that cannot be converted into a pitch.
+    FreqOutOfRange(f32),
 }
 
 /// Represents a pitch of a musical note.
@@ -96,7 +76,7 @@ impl Pitch {
 
     /// Creates a new `Pitch` from the given `num`.
     ///
-    /// Returns `PitchOutOfRangeError` if `num` is not in `[0, 127]` range.
+    /// Returns `Error::OutOfRange` if `num` is not in `[0, 127]` range.
     /// A `Pitch` can be turned into a number via `From<Pitch>` trait
     /// implemented for `u8`.
     ///
@@ -107,9 +87,9 @@ impl Pitch {
     /// let p = Pitch::from_u8(60).unwrap();
     /// assert_eq!(u8::from(p), 60);
     /// ```
-    pub fn from_u8(num: u8) -> Result<Pitch, PitchOutOfRangeError> {
+    pub fn from_u8(num: u8) -> Result<Pitch> {
         if num > Pitch::MAX_VAL {
-            Err(PitchOutOfRangeError(num as i32))
+            Err(Error::OutOfRange(num as i32))
         } else {
             Ok(Pitch(num))
         }
@@ -117,7 +97,7 @@ impl Pitch {
 
     /// Creates a new `Pitch` from the given `num`.
     ///
-    /// Returns `PitchOutOfRangeError` if `num` is not in `[0, 127]` range.
+    /// Returns `Error::OutOfRange` if `num` is not in `[0, 127]` range.
     /// A `Pitch` can be turned into a number via `From<Pitch>` trait
     /// implemented for `i32`.
     ///
@@ -128,9 +108,9 @@ impl Pitch {
     /// let p = Pitch::from_i32(69).unwrap();
     /// assert_eq!(i32::from(p), 69);
     /// ```
-    pub fn from_i32(num: i32) -> Result<Pitch, PitchOutOfRangeError> {
+    pub fn from_i32(num: i32) -> Result<Pitch> {
         if num < Pitch::MIN_VAL as i32 || num > Pitch::MAX_VAL as i32 {
-            Err(PitchOutOfRangeError(num))
+            Err(Error::OutOfRange(num))
         } else {
             Ok(Pitch(num as u8))
         }
@@ -151,7 +131,7 @@ impl Pitch {
     /// Returns a `Pitch` with a frequency that is closest to the given `freq`
     /// in Herz.
     ///
-    /// Returns `PitchFreqOutOfRangeError` if `freq` is less than
+    /// Returns `Error::FreqOutOfRange` if `freq` is less than
     /// `Pitch::MIN_FREQ` or greater than `Pitch::MAX_FREQ`.
     ///
     /// # Examples
@@ -162,9 +142,9 @@ impl Pitch {
     /// assert_eq!(Pitch::from_freq(430.0).unwrap().to_string(), "A4");
     /// assert_eq!(Pitch::from_freq(420.0).unwrap().to_string(), "G#4");
     /// ```
-    pub fn from_freq(freq: f32) -> Result<Pitch, PitchFreqOutOfRangeError> {
+    pub fn from_freq(freq: f32) -> Result<Pitch> {
         if freq < Pitch::MIN_FREQ || freq > Pitch::MAX_FREQ {
-            return Err(PitchFreqOutOfRangeError(freq));
+            return Err(Error::FreqOutOfRange(freq));
         }
         // freq = 440 * pow(2, (pitch - 69) / 12) ->
         // pow(2, (pitch - 69) / 12) = freq / 440 ->
@@ -229,7 +209,7 @@ impl From<Pitch> for String {
 }
 
 impl FromStr for Pitch {
-    type Err = ParsePitchError;
+    type Err = Error;
 
     /// Creates a new `Pitch` by parsing `s` string.
     ///
@@ -247,8 +227,10 @@ impl FromStr for Pitch {
     /// - `O` is the optional octave number; if omitted, then the 4th octave
     ///   is assumed.
     ///
-    /// Returns `ParsePitchError` if `s` does not follow the format or it
-    /// represents a pitch outside of the supported `[C-1, G9]` range.
+    /// # Errors
+    ///
+    /// * `Error::Parse` if `s` is not properly formatted.
+    /// * `Error::OutOfRange` if resulting pitch is out of range.
     ///
     /// # Examples
     /// ```
@@ -261,9 +243,9 @@ impl FromStr for Pitch {
     /// assert!("Bb8".parse::<Pitch>().is_ok());
     /// assert!("Bb9".parse::<Pitch>().is_err());
     /// ```
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Pitch> {
         if s.is_empty() {
-            return Err(ParsePitchError::from("empty string"));
+            return Err(Error::Parse("<empty string>".to_string()));
         }
 
         let bytes = s.as_bytes();
@@ -275,7 +257,7 @@ impl FromStr for Pitch {
             b'G' => 7,
             b'A' => 9,
             b'B' => 11,
-            _ => return Err(ParsePitchError::from(s))
+            _ => return Err(Error::Parse(s.to_string()))
         };
 
         let mut octave = 4;
@@ -290,19 +272,12 @@ impl FromStr for Pitch {
             if num_start < len {
                 match s[num_start..].parse::<i32>() {
                     Ok(num) => { octave = num; }
-                    Err(_) => { return Err(ParsePitchError::from(s)); }
+                    Err(_) => { return Err(Error::Parse(s.to_string())); }
                 }
             }
         }
-        octave += 1;
 
-        match Pitch::from_i32(octave * 12 + pitch_class) {
-            Ok(pitch) => Ok(pitch),
-            Err(err) => {
-                let msg = format!("{} pitch is out of range ({})", s, err.0);
-                Err(ParsePitchError(msg))
-            }
-        }
+        Pitch::from_i32((octave + 1) * 12 + pitch_class)
     }
 }
 
@@ -471,15 +446,17 @@ impl fmt::Display for PitchClass {
 }
 
 impl FromStr for PitchClass {
-    type Err = ParsePitchError;
+    type Err = Error;
 
     /// Parses `s` into a `PitchClass`.
     ///
     /// The result is the same as if `s` was parsed into `Pitch` and then
     /// `PitchClass` was extracted from it.
     ///
-    /// Returns `ParsePitchError` if `Pitch` cannot be parsed from `s`.
-    /// See `Pitch` documentation for more details about the string format.
+    /// # Errors
+    ///
+    /// * `Error::Parse` if `s` is not properly formatted.
+    /// * `Error::OutOfRange` if resulting pitch is out of range.
     ///
     /// # Examples
     /// ```
@@ -488,7 +465,7 @@ impl FromStr for PitchClass {
     /// let pc: PitchClass = "C#6".parse().unwrap();
     /// assert_eq!(pc, PitchClass::CSharp);
     /// ```
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<PitchClass> {
         match Pitch::from_str(s) {
             Ok(pitch) => Ok(PitchClass::from(pitch)),
             Err(err) => Err(err)
@@ -509,7 +486,7 @@ impl Add<i32> for PitchClass {
     /// assert_eq!(PitchClass::C + 5, PitchClass::F);
     /// assert_eq!(PitchClass::C + 15, PitchClass::DSharp);
     /// ```
-    fn add(self, rhs: i32) -> Self::Output {
+    fn add(self, rhs: i32) -> PitchClass {
         unsafe {
             mem::transmute(((((self as i32 + rhs) % 12) + 12) % 12) as u8)
         }
@@ -529,7 +506,7 @@ impl Sub<i32> for PitchClass {
     /// assert_eq!(PitchClass::C - 5, PitchClass::G);
     /// assert_eq!(PitchClass::C - 15, PitchClass::A);
     /// ```
-    fn sub(self, rhs: i32) -> Self::Output {
+    fn sub(self, rhs: i32) -> PitchClass {
         self + (-rhs)
     }
 }
@@ -556,49 +533,10 @@ impl Sub<PitchClass> for PitchClass {
     /// assert_eq!(up, 8);   // 8 semitones up from E to C
     /// assert_eq!(down, 4); // 4 semitones down from E to C
     /// ```
-    fn sub(self, rhs: PitchClass) -> Self::Output {
+    fn sub(self, rhs: PitchClass) -> (i32, i32) {
         let lhs = self as i32;
         let rhs = rhs as i32;
         ((rhs - lhs + 12) % 12, (lhs - rhs + 12) % 12)
-    }
-}
-
-#[cfg(test)]
-mod parse_pitch_error_tests {
-    use super::*;
-
-    #[test]
-    fn created_from_str() {
-        let err = ParsePitchError::from("foo");
-        assert_eq!(err.0, "Cannot parse pitch: foo");
-    }
-
-    #[test]
-    fn formatted() {
-        let err = ParsePitchError::from("foo");
-        assert_eq!(format!("{}", err), "Cannot parse pitch: foo");
-    }
-}
-
-#[cfg(test)]
-mod pitch_out_of_range_error_tests {
-    use super::*;
-
-    #[test]
-    fn formatted() {
-        let err = PitchOutOfRangeError(-1);
-        assert_eq!(format!("{}", err), "Pitch is out of range: -1");
-    }
-}
-
-#[cfg(test)]
-mod pitch_freq_out_of_range_error_tests {
-    use super::*;
-
-    #[test]
-    fn formatted() {
-        let err = PitchFreqOutOfRangeError(-1.0);
-        assert_eq!(format!("{}", err), "Pitch frequency is out of range: -1");
     }
 }
 
@@ -616,7 +554,7 @@ mod pitch_tests {
     fn from_u8_can_fail() {
         assert_eq!(
             Pitch::from_u8(Pitch::MAX_VAL + 1).unwrap_err(),
-            PitchOutOfRangeError(Pitch::MAX_VAL as i32 + 1)
+            Error::OutOfRange(Pitch::MAX_VAL as i32 + 1)
         );
     }
 
@@ -641,11 +579,11 @@ mod pitch_tests {
     fn from_i32_can_fail() {
         assert_eq!(
             Pitch::from_i32(Pitch::MIN_VAL as i32 - 1).unwrap_err(),
-            PitchOutOfRangeError(Pitch::MIN_VAL as i32 - 1)
+            Error::OutOfRange(Pitch::MIN_VAL as i32 - 1)
         );
         assert_eq!(
             Pitch::from_i32(Pitch::MAX_VAL as i32 + 1).unwrap_err(),
-            PitchOutOfRangeError(Pitch::MAX_VAL as i32 + 1)
+            Error::OutOfRange(Pitch::MAX_VAL as i32 + 1)
         );
     }
 
@@ -673,11 +611,11 @@ mod pitch_tests {
     fn from_freq_can_fail() {
         assert_eq!(
             Pitch::from_freq(7.9).unwrap_err(),
-            PitchFreqOutOfRangeError(7.9)
+            Error::FreqOutOfRange(7.9)
         );
         assert_eq!(
             Pitch::from_freq(12900.1).unwrap_err(),
-            PitchFreqOutOfRangeError(12900.1)
+            Error::FreqOutOfRange(12900.1)
         );
     }
 
@@ -718,35 +656,35 @@ mod pitch_tests {
     fn parse_can_fail() {
         assert_eq!(
             "".parse::<Pitch>().unwrap_err(),
-            ParsePitchError::from("empty string")
+            Error::Parse("<empty string>".to_string())
         );
         assert_eq!(
             "&".parse::<Pitch>().unwrap_err(),
-            ParsePitchError::from("&")
+            Error::Parse("&".to_string())
         );
         assert_eq!(
             "x".parse::<Pitch>().unwrap_err(),
-            ParsePitchError::from("x")
+            Error::Parse("x".to_string())
         );
         assert_eq!(
             "Foo Fighters".parse::<Pitch>().unwrap_err(),
-            ParsePitchError::from("Foo Fighters")
+            Error::Parse("Foo Fighters".to_string())
         );
         assert_eq!(
             "Abba".parse::<Pitch>().unwrap_err(),
-            ParsePitchError::from("Abba")
+            Error::Parse("Abba".to_string())
         );
         assert_eq!(
             "C# Language".parse::<Pitch>().unwrap_err(),
-            ParsePitchError::from("C# Language")
+            Error::Parse("C# Language".to_string())
         );
         assert_eq!(
             "C-2".parse::<Pitch>().unwrap_err(),
-            ParsePitchError("C-2 pitch is out of range (-12)".to_string())
+            Error::OutOfRange(-12)
         );
         assert_eq!(
             "A9".parse::<Pitch>().unwrap_err(),
-            ParsePitchError("A9 pitch is out of range (129)".to_string())
+            Error::OutOfRange(129)
         );
     }
 
@@ -820,7 +758,7 @@ mod pitch_class_tests {
     fn parse_can_fail() {
         assert_eq!(
             "BAR".parse::<PitchClass>().unwrap_err(),
-            ParsePitchError::from("BAR")
+            Error::Parse("BAR".to_string())
         );
     }
 
