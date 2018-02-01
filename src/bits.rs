@@ -1,7 +1,7 @@
 //! Small (less than byte) integers.
 
 /// An immutable 4-bit unsigned integer.
-#[derive(Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct U4(u8);
 
 impl U4 {
@@ -56,7 +56,7 @@ impl From<U4> for u8 {
 }
 
 /// An immutable 7-bit unsigned integer.
-#[derive(Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct U7(u8);
 
 impl U7 {
