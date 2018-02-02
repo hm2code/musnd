@@ -1,6 +1,7 @@
 //! A collection of utilities relates to pitch of musical notes.
 
-use std::convert::From;
+use bits::U7;
+
 use std::fmt;
 use std::mem;
 use std::ops::{Add, Sub};
@@ -33,88 +34,44 @@ pub enum Error {
 ///
 /// The supported note range is `[C-1, G9]` (from `C` in -1st octave to `G` in
 /// 9th octave inclusive). This is the same range as defined by MIDI
-/// specification and it can be represented as a number in `[0, 127]` range.
+/// specification and it can be represented as a number in `[0, 127]` range
+/// (7-bit).
 ///
 /// # Examples
-/// ```
+/// ```rust
+/// use musnd::bits::U7;
 /// use musnd::pitch::{Pitch, PitchClass};
 ///
-/// let p: Pitch = "A4".parse().unwrap();
+/// # fn try_main() -> musnd::pitch::Result<()> {
+/// let p: Pitch = "A4".parse()?;
 /// assert_eq!(PitchClass::from(p), PitchClass::A);
 /// assert_eq!(p.octave(), 4);
 /// assert_eq!(p.freq(), 440.0);
 /// assert_eq!(p.to_string(), "A4");
 /// assert_eq!(u8::from(p), 69);
 ///
-/// let p = Pitch::from_u8(49).unwrap();
+/// let p = Pitch::from(U7::from(49));
 /// assert_eq!(p.to_string(), "C#3");
-/// assert_eq!(i32::from(p), 49);
+/// assert_eq!(u8::from(p), 49);
 ///
-/// let p = Pitch::from_freq(900.0).unwrap();
+/// let p = Pitch::from_freq(900.0)?;
 /// assert_eq!(p.to_string(), "A5");
 /// assert_eq!(p.freq(), 880.0);
+/// # Ok(())
+/// # }
+/// # fn main() {
+/// #     try_main().unwrap();
+/// # }
 /// ```
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Pitch(u8);
 
 impl Pitch {
     /// The lowest supported `Pitch`: `C-1`.
-    pub const MIN: Pitch = Pitch(Pitch::MIN_VAL);
+    pub const MIN: Pitch = Pitch(0);
 
     /// The highest supported `Pitch`: `G9`.
-    pub const MAX: Pitch = Pitch(Pitch::MAX_VAL);
-
-    /// Minimal `u8` value that can be converted to/from `Pitch`.
-    ///
-    /// This number corresponds to `C-1` pitch.
-    pub const MIN_VAL: u8 = 0;
-
-    /// Maximal `u8` value that can be converted to/from `Pitch`.
-    ///
-    /// This value corresponds to `G9` pitch.
-    pub const MAX_VAL: u8 = 127;
-
-    /// Creates a new `Pitch` from the given `num`.
-    ///
-    /// Returns `Error::OutOfRange` if `num` is not in `[0, 127]` range.
-    /// A `Pitch` can be turned into a number via `From<Pitch>` trait
-    /// implemented for `u8`.
-    ///
-    /// # Examples
-    /// ```
-    /// use musnd::pitch::Pitch;
-    ///
-    /// let p = Pitch::from_u8(60).unwrap();
-    /// assert_eq!(u8::from(p), 60);
-    /// ```
-    pub fn from_u8(num: u8) -> Result<Pitch> {
-        if num > Pitch::MAX_VAL {
-            Err(Error::OutOfRange(num as i32))
-        } else {
-            Ok(Pitch(num))
-        }
-    }
-
-    /// Creates a new `Pitch` from the given `num`.
-    ///
-    /// Returns `Error::OutOfRange` if `num` is not in `[0, 127]` range.
-    /// A `Pitch` can be turned into a number via `From<Pitch>` trait
-    /// implemented for `i32`.
-    ///
-    /// # Examples
-    /// ```
-    /// use musnd::pitch::Pitch;
-    ///
-    /// let p = Pitch::from_i32(69).unwrap();
-    /// assert_eq!(i32::from(p), 69);
-    /// ```
-    pub fn from_i32(num: i32) -> Result<Pitch> {
-        if num < Pitch::MIN_VAL as i32 || num > Pitch::MAX_VAL as i32 {
-            Err(Error::OutOfRange(num))
-        } else {
-            Ok(Pitch(num as u8))
-        }
-    }
+    pub const MAX: Pitch = Pitch(U7::MAX);
 
     /// Minimal frequency in Hertz that can be converted into `Pitch` using
     /// `from_freq` constructor.
@@ -135,12 +92,18 @@ impl Pitch {
     /// `Pitch::MIN_FREQ` or greater than `Pitch::MAX_FREQ`.
     ///
     /// # Examples
-    /// ```
+    /// ```rust
     /// use musnd::pitch::Pitch;
     ///
-    /// assert_eq!(Pitch::from_freq(440.0).unwrap().to_string(), "A4");
-    /// assert_eq!(Pitch::from_freq(430.0).unwrap().to_string(), "A4");
-    /// assert_eq!(Pitch::from_freq(420.0).unwrap().to_string(), "G#4");
+    /// # fn try_main() -> musnd::pitch::Result<()> {
+    /// assert_eq!(Pitch::from_freq(440.0)?.to_string(), "A4");
+    /// assert_eq!(Pitch::from_freq(430.0)?.to_string(), "A4");
+    /// assert_eq!(Pitch::from_freq(420.0)?.to_string(), "G#4");
+    /// # Ok(())
+    /// # }
+    /// # fn main() {
+    /// #     try_main().unwrap();
+    /// # }
     /// ```
     pub fn from_freq(freq: f32) -> Result<Pitch> {
         if freq < Pitch::MIN_FREQ || freq > Pitch::MAX_FREQ {
@@ -160,7 +123,7 @@ impl Pitch {
     /// The returned number is in `[-1, 9]` range.
     ///
     /// # Examples
-    /// ```
+    /// ```rust
     /// use musnd::pitch::Pitch;
     ///
     /// assert_eq!(Pitch::MIN.octave(), -1);
@@ -173,26 +136,39 @@ impl Pitch {
     /// Returns the frequency of `self` in Hertz.
     ///
     /// # Examples
-    /// ```
+    /// ```rust
     /// use musnd::pitch::Pitch;
     ///
-    /// let p: Pitch = "A4".parse().unwrap();
+    /// # use musnd::pitch::Result;
+    /// # fn try_main() -> Result<()> {
+    /// let p: Pitch = "A4".parse()?;
     /// assert_eq!(p.freq(), 440.0);
+    /// # Ok(())
+    /// # }
+    /// # fn main() {
+    /// #     try_main().unwrap();
+    /// # }
     /// ```
     pub fn freq(&self) -> f32 {
         440.0 * 2_f32.powf((self.0 as f32 - 69.0) / 12.0)
     }
 }
 
-impl From<Pitch> for u8 {
-    fn from(pitch: Pitch) -> Self {
-        pitch.0
+impl From<U7> for Pitch {
+    fn from(value: U7) -> Self {
+        Pitch(u8::from(value))
     }
 }
 
-impl From<Pitch> for i32 {
+impl From<Pitch> for U7 {
     fn from(pitch: Pitch) -> Self {
-        pitch.0 as i32
+        U7::from(pitch.0)
+    }
+}
+
+impl From<Pitch> for u8 {
+    fn from(pitch: Pitch) -> Self {
+        pitch.0
     }
 }
 
@@ -277,7 +253,12 @@ impl FromStr for Pitch {
             }
         }
 
-        Pitch::from_i32((octave + 1) * 12 + pitch_class)
+        let pitch = (octave + 1) * 12 + pitch_class;
+        if pitch < 0 || pitch > U7::MAX as i32 {
+            Err(Error::OutOfRange(pitch))
+        } else {
+            Ok(Pitch(pitch as u8))
+        }
     }
 }
 
@@ -294,11 +275,12 @@ impl FromStr for Pitch {
 /// `PitchClass`es can be obtained using `-` operator.
 ///
 /// # Examples
-/// ```
+/// ```rust
 /// use musnd::pitch::{Pitch, PitchClass};
 ///
-/// let pc_a = PitchClass::from("A3".parse::<Pitch>().unwrap());
-/// let pc_c: PitchClass = "C5".parse().unwrap();
+/// # fn try_main() -> musnd::pitch::Result<()> {
+/// let pc_a = PitchClass::from("A3".parse::<Pitch>()?);
+/// let pc_c: PitchClass = "C5".parse()?;
 ///
 /// assert_eq!(pc_a, PitchClass::A);
 /// assert_eq!(pc_c, PitchClass::C);
@@ -312,6 +294,11 @@ impl FromStr for Pitch {
 ///
 /// assert_eq!(PitchClass::GSharp.as_str(), "G#");
 /// assert_eq!(PitchClass::GSharp.as_str_flat(), "Ab");
+/// # Ok(())
+/// # }
+/// # fn main() {
+/// #     try_main().unwrap();
+/// # }
 /// ```
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -357,7 +344,7 @@ impl PitchClass {
     /// Returns textual representation of `self`.
     ///
     /// # Examples
-    /// ```
+    /// ```rust
     /// use musnd::pitch::PitchClass;
     ///
     /// assert_eq!(PitchClass::C.as_str(), "C");
@@ -372,7 +359,7 @@ impl PitchClass {
     /// Returns textual representation of `self` using flats instead of sharps.
     ///
     /// # Examples
-    /// ```
+    /// ```rust
     /// use musnd::pitch::PitchClass;
     ///
     /// assert_eq!(PitchClass::C.as_str_flat(), "C");
@@ -388,7 +375,7 @@ impl PitchClass {
     /// `self`.
     ///
     /// # Examples
-    /// ```
+    /// ```rust
     /// use musnd::pitch::PitchClass;
     ///
     /// let pitches = PitchClass::C.pitches();
@@ -409,7 +396,7 @@ impl PitchClass {
         let mut pitch = *self as u8;
         // The last allocated element is unused for pitches greater than 7 (G).
         let mut vec = Vec::with_capacity(11);
-        while pitch <= Pitch::MAX_VAL {
+        while pitch <= U7::MAX {
             vec.push(Pitch(pitch));
             pitch += 12;
         }
@@ -421,16 +408,22 @@ impl From<Pitch> for PitchClass {
     /// Extracts `PitchClass` from `pitch`.
     ///
     /// # Examples:
-    /// ```
+    /// ```rust
     /// use musnd::pitch::{Pitch, PitchClass};
     ///
-    /// let p: Pitch = "A4".parse().unwrap();
+    /// # fn try_main() -> musnd::pitch::Result<()> {
+    /// let p: Pitch = "A4".parse()?;
     ///
     /// let pc = PitchClass::from(p);
     /// assert_eq!(pc, PitchClass::A);
     ///
     /// let pc: PitchClass = p.into();
     /// assert_eq!(pc, PitchClass::A);
+    /// # Ok(())
+    /// # }
+    /// # fn main() {
+    /// #     try_main().unwrap();
+    /// # }
     /// ```
     fn from(pitch: Pitch) -> Self {
         unsafe {
@@ -462,8 +455,14 @@ impl FromStr for PitchClass {
     /// ```
     /// use musnd::pitch::{Pitch, PitchClass};
     ///
-    /// let pc: PitchClass = "C#6".parse().unwrap();
+    /// # fn try_main() -> musnd::pitch::Result<()> {
+    /// let pc: PitchClass = "C#6".parse()?;
     /// assert_eq!(pc, PitchClass::CSharp);
+    /// # Ok(())
+    /// # }
+    /// # fn main() {
+    /// #     try_main().unwrap();
+    /// # }
     /// ```
     fn from_str(s: &str) -> Result<PitchClass> {
         match Pitch::from_str(s) {
@@ -480,7 +479,7 @@ impl Add<i32> for PitchClass {
     /// semitones up from `self`.
     ///
     /// # Examples
-    /// ```
+    /// ```rust
     /// use musnd::pitch::PitchClass;
     ///
     /// assert_eq!(PitchClass::C + 5, PitchClass::F);
@@ -500,7 +499,7 @@ impl Sub<i32> for PitchClass {
     /// semitones down from `self`.
     ///
     /// # Examples
-    /// ```
+    /// ```rust
     /// use musnd::pitch::PitchClass;
     ///
     /// assert_eq!(PitchClass::C - 5, PitchClass::G);
@@ -515,14 +514,15 @@ impl Sub<PitchClass> for PitchClass {
     /// The resulting type after applying the `-` operator.
     ///
     /// The first element is the number of semitones up and the second is
-    /// the number of semitones down.
+    /// the number of semitones down. Both values are in [0, 11] range and
+    /// represented as `i32` for convenience.
     type Output = (i32, i32);
 
     /// Performs the `-` operation and returns the number of semitones between
     /// the operands in both up and down directions.
     ///
     /// # Example
-    /// ```
+    /// ```rust
     /// use musnd::pitch::PitchClass;
     ///
     /// let (up, down) = PitchClass::C - PitchClass::E;
@@ -545,17 +545,13 @@ mod pitch_tests {
     use super::*;
 
     #[test]
-    fn created_from_u8() {
-        assert_eq!(Pitch::from_u8(60).unwrap().0, 60);
-        assert_eq!(Pitch::from_u8(127).unwrap().0, 127);
+    fn created_from_u7() {
+        assert_eq!(Pitch::from(U7::from(123)).0, 123);
     }
 
     #[test]
-    fn from_u8_can_fail() {
-        assert_eq!(
-            Pitch::from_u8(Pitch::MAX_VAL + 1).unwrap_err(),
-            Error::OutOfRange(Pitch::MAX_VAL as i32 + 1)
-        );
+    fn converted_to_u7() {
+        assert_eq!(U7::from(Pitch(18)), U7::from(18));
     }
 
     #[test]
@@ -564,47 +560,16 @@ mod pitch_tests {
     }
 
     #[test]
-    fn created_from_i32() {
-        assert_eq!(
-            Pitch::from_i32(Pitch::MIN_VAL as i32).unwrap().0,
-            Pitch::MIN_VAL
-        );
-        assert_eq!(
-            Pitch::from_i32(Pitch::MAX_VAL as i32).unwrap().0,
-            Pitch::MAX_VAL
-        );
-    }
-
-    #[test]
-    fn from_i32_can_fail() {
-        assert_eq!(
-            Pitch::from_i32(Pitch::MIN_VAL as i32 - 1).unwrap_err(),
-            Error::OutOfRange(Pitch::MIN_VAL as i32 - 1)
-        );
-        assert_eq!(
-            Pitch::from_i32(Pitch::MAX_VAL as i32 + 1).unwrap_err(),
-            Error::OutOfRange(Pitch::MAX_VAL as i32 + 1)
-        );
-    }
-
-    #[test]
-    fn converted_to_i32() {
-        assert_eq!(i32::from(Pitch(49)), 49);
-    }
-
-    #[test]
     fn created_from_freq() {
         assert_eq!(Pitch::from_freq(430.0).unwrap().0, 69);
         assert_eq!(Pitch::from_freq(440.0).unwrap().0, 69);
         assert_eq!(Pitch::from_freq(450.0).unwrap().0, 69);
 
-        assert_eq!(Pitch::from_freq(8.176).unwrap().0, Pitch::MIN_VAL);
-        assert_eq!(Pitch::from_freq(12543.9).unwrap().0, Pitch::MAX_VAL);
+        assert_eq!(Pitch::from_freq(8.176).unwrap().0, 0);
+        assert_eq!(Pitch::from_freq(12543.9).unwrap().0, U7::MAX);
 
-        assert_eq!(Pitch::from_freq(Pitch::MIN_FREQ).unwrap().0,
-                   Pitch::MIN_VAL);
-        assert_eq!(Pitch::from_freq(Pitch::MAX_FREQ).unwrap().0,
-                   Pitch::MAX_VAL);
+        assert_eq!(Pitch::from_freq(Pitch::MIN_FREQ).unwrap().0, 0);
+        assert_eq!(Pitch::from_freq(Pitch::MAX_FREQ).unwrap().0, U7::MAX);
     }
 
     #[test]
@@ -691,9 +656,9 @@ mod pitch_tests {
     #[test]
     fn formatted() {
         assert_eq!(format!("{}", Pitch::MIN), "C-1");
-        assert_eq!(format!("{}", Pitch(Pitch::MIN_VAL + 1)), "C#-1");
+        assert_eq!(format!("{}", Pitch(1)), "C#-1");
 
-        assert_eq!(Pitch(Pitch::MAX_VAL - 1).to_string(), "F#9");
+        assert_eq!(Pitch(U7::MAX - 1).to_string(), "F#9");
         assert_eq!(Pitch::MAX.to_string(), "G9");
     }
 
