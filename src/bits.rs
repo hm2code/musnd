@@ -14,7 +14,7 @@ impl U4 {
     /// `MAX` value. Use `from` for conversion by ignoring upper 4 bits.
     ///
     /// # Examples
-    /// ```
+    /// ```rust
     /// use musnd::bits::U4;
     ///
     /// assert_eq!(U4::try_from(0x0F), Some(U4::from(0x0F)));
@@ -35,7 +35,7 @@ impl From<u8> for U4 {
     /// The upper 4 bits are ignored.
     ///
     /// # Examples
-    /// ```
+    /// ```rust
     /// use musnd::bits::U4;
     ///
     /// let v = U4::from(0x0F);
@@ -70,7 +70,7 @@ impl U7 {
     /// bit.
     ///
     /// # Examples
-    /// ```
+    /// ```rust
     /// use musnd::bits::U7;
     ///
     /// assert_eq!(U7::try_from(0x7F), Some(U7::from(0x7F)));
@@ -91,7 +91,7 @@ impl From<u8> for U7 {
     /// The most significant bit is ignored.
     ///
     /// # Examples
-    /// ```
+    /// ```rust
     /// use musnd::bits::U7;
     ///
     /// let v = U7::from(0x7F);
