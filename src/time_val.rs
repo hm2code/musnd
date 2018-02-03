@@ -5,6 +5,15 @@ use std::f32;
 use std::fmt;
 
 /// An immutable time/value pair that represents a value at a point in time.
+///
+/// # Examples
+/// ```rust
+/// use musnd::time_val::Pair;
+///
+/// let p = Pair::new(1.0, 2.0);
+/// assert_eq!(p.time(), 1.0);
+/// assert_eq!(p.value(), 2.0);
+/// ```
 #[derive(Debug, PartialEq)]
 pub struct Pair {
     time: f32,
@@ -52,6 +61,27 @@ impl fmt::Display for Pair {
 ///
 /// `Seq` does not have public constructors so the only way to create a new
 /// `Seq` is to use a `SeqBuilder`.
+///
+/// # Examples
+/// ```rust
+/// use musnd::time_val::*;
+///
+/// # fn try_main() -> Result<(), SeqBuilder> {
+/// let mut sb = SeqBuilder::new();
+/// sb.push(Pair::new(0.0, 1.0));
+/// sb.push(Pair::new(1.0, 3.0));
+/// sb.push(Pair::new(1.1, 2.0));
+/// let s = sb.build()?;
+///
+/// assert_eq!(s.duration(), 1.1);
+/// assert_eq!(s.min(), 1.0);
+/// assert_eq!(s.max(), 3.0);
+/// # Ok(())
+/// # }
+/// # fn main() {
+/// #     try_main().unwrap();
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct Seq {
     pairs: Vec<Pair>,
@@ -102,6 +132,25 @@ impl Seq {
 }
 
 /// A builder for creating a new `Seq` object.
+///
+/// # Examples
+/// ```rust
+/// use musnd::time_val::*;
+///
+/// # fn try_main() -> Result<(), SeqBuilder> {
+/// let mut sb = SeqBuilder::new();
+/// sb.push(Pair::new(0.0, 1.0));
+/// sb.push(Pair::new(2.0, 3.0));
+/// let s = sb.build()?;
+///
+/// assert_eq!(s.as_slice().len(), 2);
+/// assert_eq!(s.duration(), 2.0);
+/// # Ok(())
+/// # }
+/// # fn main() {
+/// #     try_main().unwrap();
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct SeqBuilder {
     pairs: Vec<Pair>,
