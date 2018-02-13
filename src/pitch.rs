@@ -254,7 +254,7 @@ impl FromStr for Pitch {
         }
 
         let pitch = (octave + 1) * 12 + pitch_class;
-        if pitch < 0 || pitch > U7::MAX as i32 {
+        if pitch & !(U7::MAX as i32) != 0 {
             Err(Error::OutOfRange(pitch))
         } else {
             Ok(Pitch(pitch as u8))
@@ -396,7 +396,7 @@ impl PitchClass {
         let mut pitch = *self as u8;
         // The last allocated element is unused for pitches greater than 7 (G).
         let mut vec = Vec::with_capacity(11);
-        while pitch <= U7::MAX {
+        while pitch & !U7::MAX == 0 {
             vec.push(Pitch(pitch));
             pitch += 12;
         }
