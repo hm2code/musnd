@@ -107,7 +107,12 @@ impl Seq {
                 max = value;
             }
         }
-        Seq { pairs, duration, min, max }
+        Seq {
+            pairs,
+            duration,
+            min,
+            max,
+        }
     }
 
     /// Extracts a slice containing the entire sequence.
@@ -167,7 +172,9 @@ impl SeqBuilder {
 
     /// Creates a new empty `SeqBuilder` with the given capacity.
     pub fn with_capacity(c: usize) -> SeqBuilder {
-        SeqBuilder { pairs: Vec::with_capacity(c) }
+        SeqBuilder {
+            pairs: Vec::with_capacity(c),
+        }
     }
 
     /// Adds `pair` to the sequence. Prefer using `try_push` method for better
@@ -181,10 +188,12 @@ impl SeqBuilder {
     /// the sequence.
     pub fn push(&mut self, pair: Pair) {
         match self.pairs.last() {
-            Some(last) if last.time() >= pair.time() =>
-                panic!(TIME_NOT_INCREASING_ERR_MSG),
-            None if pair.time() != 0.0 =>
-                panic!(NON_ZERO_TIME_ERR_MSG),
+            Some(last) if last.time() >= pair.time() => {
+                panic!(TIME_NOT_INCREASING_ERR_MSG);
+            }
+            None if pair.time() != 0.0 => {
+                panic!(NON_ZERO_TIME_ERR_MSG);
+            }
             _ => (),
         }
         self.pairs.push(pair);
@@ -203,10 +212,12 @@ impl SeqBuilder {
     /// can be recovered from the returned enum value.
     pub fn try_push(&mut self, pair: Pair) -> Result<(), SeqError> {
         match self.pairs.last() {
-            Some(last) if last.time() >= pair.time() =>
-                return Err(SeqError::TimeNotIncreasing(pair)),
-            None if pair.time() != 0.0 =>
-                return Err(SeqError::NonZeroTime(pair)),
+            Some(last) if last.time() >= pair.time() => {
+                return Err(SeqError::TimeNotIncreasing(pair))
+            }
+            None if pair.time() != 0.0 => {
+                return Err(SeqError::NonZeroTime(pair));
+            }
             _ => (),
         }
         self.pairs.push(pair);
@@ -230,10 +241,8 @@ impl SeqBuilder {
     }
 }
 
-const NON_ZERO_TIME_ERR_MSG: &str =
-    "time/value sequence must start with 0.0 time";
-const TIME_NOT_INCREASING_ERR_MSG: &str =
-    "time is not increasing";
+const NON_ZERO_TIME_ERR_MSG: &str = "time/value sequence must start with 0.0 time";
+const TIME_NOT_INCREASING_ERR_MSG: &str = "time is not increasing";
 
 /// Error returned from `SeqBuilder::try_push` method.
 ///
@@ -251,20 +260,18 @@ pub enum SeqError {
 
 impl Error for SeqError {
     fn description(&self) -> &str {
-        match self {
-            &SeqError::NonZeroTime(_) => NON_ZERO_TIME_ERR_MSG,
-            &SeqError::TimeNotIncreasing(_) => TIME_NOT_INCREASING_ERR_MSG,
+        match *self {
+            SeqError::NonZeroTime(_) => NON_ZERO_TIME_ERR_MSG,
+            SeqError::TimeNotIncreasing(_) => TIME_NOT_INCREASING_ERR_MSG,
         }
     }
 }
 
 impl fmt::Display for SeqError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &SeqError::NonZeroTime(ref pair) =>
-                write!(f, "NonZeroTime{}", pair),
-            &SeqError::TimeNotIncreasing(ref pair) =>
-                write!(f, "TimeNotIncreasing{}", pair),
+        match *self {
+            SeqError::NonZeroTime(ref pair) => write!(f, "NonZeroTime{}", pair),
+            SeqError::TimeNotIncreasing(ref pair) => write!(f, "TimeNotIncreasing{}", pair),
         }
     }
 }
@@ -439,18 +446,25 @@ mod seq_error_tests {
 
     #[test]
     fn description() {
-        assert_eq!(SeqError::NonZeroTime(Pair::new(0.0, 0.0)).description(),
-                   NON_ZERO_TIME_ERR_MSG);
-        assert_eq!(SeqError::TimeNotIncreasing(Pair::new(0.0, 0.0))
-                       .description(),
-                   TIME_NOT_INCREASING_ERR_MSG);
+        assert_eq!(
+            SeqError::NonZeroTime(Pair::new(0.0, 0.0)).description(),
+            NON_ZERO_TIME_ERR_MSG
+        );
+        assert_eq!(
+            SeqError::TimeNotIncreasing(Pair::new(0.0, 0.0)).description(),
+            TIME_NOT_INCREASING_ERR_MSG
+        );
     }
 
     #[test]
     fn display() {
-        assert_eq!(SeqError::NonZeroTime(Pair::new(0.0, 0.0)).to_string(),
-                   "NonZeroTime(0, 0)");
-        assert_eq!(SeqError::TimeNotIncreasing(Pair::new(0.0, 0.0)).to_string(),
-                   "TimeNotIncreasing(0, 0)");
+        assert_eq!(
+            SeqError::NonZeroTime(Pair::new(0.0, 0.0)).to_string(),
+            "NonZeroTime(0, 0)"
+        );
+        assert_eq!(
+            SeqError::TimeNotIncreasing(Pair::new(0.0, 0.0)).to_string(),
+            "TimeNotIncreasing(0, 0)"
+        );
     }
 }

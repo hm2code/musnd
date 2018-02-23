@@ -233,22 +233,32 @@ impl FromStr for Pitch {
             b'G' => 7,
             b'A' => 9,
             b'B' => 11,
-            _ => return Err(Error::Parse(s.to_string()))
+            _ => return Err(Error::Parse(s.to_string())),
         };
 
         let mut octave = 4;
         let len = bytes.len();
         if len > 1 {
             let num_start = match bytes[1] {
-                b'#' => { pitch_class += 1; 2 }
-                b'b' => { pitch_class -= 1; 2 }
-                _ => 1
+                b'#' => {
+                    pitch_class += 1;
+                    2
+                }
+                b'b' => {
+                    pitch_class -= 1;
+                    2
+                }
+                _ => 1,
             };
 
             if num_start < len {
                 match s[num_start..].parse::<i32>() {
-                    Ok(num) => { octave = num; }
-                    Err(_) => { return Err(Error::Parse(s.to_string())); }
+                    Ok(num) => {
+                        octave = num;
+                    }
+                    Err(_) => {
+                        return Err(Error::Parse(s.to_string()));
+                    }
                 }
             }
         }
@@ -426,9 +436,7 @@ impl From<Pitch> for PitchClass {
     /// # }
     /// ```
     fn from(pitch: Pitch) -> Self {
-        unsafe {
-            mem::transmute::<u8, PitchClass>(pitch.0 % 12)
-        }
+        unsafe { mem::transmute::<u8, PitchClass>(pitch.0 % 12) }
     }
 }
 
@@ -467,7 +475,7 @@ impl FromStr for PitchClass {
     fn from_str(s: &str) -> Result<PitchClass> {
         match Pitch::from_str(s) {
             Ok(pitch) => Ok(PitchClass::from(pitch)),
-            Err(err) => Err(err)
+            Err(err) => Err(err),
         }
     }
 }
@@ -486,9 +494,8 @@ impl Add<i32> for PitchClass {
     /// assert_eq!(PitchClass::C + 15, PitchClass::DSharp);
     /// ```
     fn add(self, rhs: i32) -> PitchClass {
-        unsafe {
-            mem::transmute(((((self as i32 + rhs) % 12) + 12) % 12) as u8)
-        }
+        let pclass = (((self as i32 + rhs) % 12) + 12) % 12;
+        unsafe { mem::transmute(pclass as u8) }
     }
 }
 
@@ -643,14 +650,8 @@ mod pitch_tests {
             "C# Language".parse::<Pitch>().unwrap_err(),
             Error::Parse("C# Language".to_string())
         );
-        assert_eq!(
-            "C-2".parse::<Pitch>().unwrap_err(),
-            Error::OutOfRange(-12)
-        );
-        assert_eq!(
-            "A9".parse::<Pitch>().unwrap_err(),
-            Error::OutOfRange(129)
-        );
+        assert_eq!("C-2".parse::<Pitch>().unwrap_err(), Error::OutOfRange(-12));
+        assert_eq!("A9".parse::<Pitch>().unwrap_err(), Error::OutOfRange(129));
     }
 
     #[test]
@@ -763,9 +764,14 @@ mod pitch_class_tests {
     fn pitches() {
         fn check_pitches(pc: PitchClass, len: usize) {
             let pitches = pc.pitches();
-            assert_eq!(pitches.len(), len,
-                       "Expected {} elements for {} pitches, got {}",
-                       len, pc, pitches.len());
+            assert_eq!(
+                pitches.len(),
+                len,
+                "Expected {} elements for {} pitches, got {}",
+                len,
+                pc,
+                pitches.len()
+            );
             for (i, &p) in pitches.iter().enumerate() {
                 assert_eq!(PitchClass::from(p), pc);
                 assert_eq!(p.octave(), i as i32 - 1);
