@@ -49,6 +49,29 @@ impl fmt::Display for Pair {
     }
 }
 
+#[cfg(test)]
+mod pair_tests {
+    use super::*;
+
+    #[test]
+    fn new() {
+        let pair = Pair::new(0.0, 1.0);
+        assert_eq!(pair.time(), 0.0);
+        assert_eq!(pair.value(), 1.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "time can't be negative")]
+    fn new_panics_on_negative_time() {
+        Pair::new(-1.0, 1.0);
+    }
+
+    #[test]
+    fn display() {
+        assert_eq!(Pair::new(0.1, 2.3).to_string(), "(0.1, 2.3)");
+    }
+}
+
 /// An immutable sequence of `Pair` elements in time increasing order.
 ///
 /// The following is true for any `Seq`:
@@ -133,6 +156,48 @@ impl Seq {
     /// Returns maximal value within `self`. The complexity is `O(1)`.
     pub fn max(&self) -> f32 {
         self.max
+    }
+}
+
+#[cfg(test)]
+mod seq_tests {
+    use super::*;
+
+    fn new_test_seq() -> Seq {
+        let pairs = vec![Pair::new(0.0, 1.0), Pair::new(2.0, 3.0)];
+        Seq::new(pairs)
+    }
+
+    #[test]
+    fn new() {
+        let seq = new_test_seq();
+        assert_eq!(seq.pairs.len(), 2);
+        assert_eq!(seq.pairs[0], Pair::new(0.0, 1.0));
+        assert_eq!(seq.pairs[1], Pair::new(2.0, 3.0));
+    }
+
+    #[test]
+    fn as_slice() {
+        let seq = new_test_seq();
+        let slice = seq.as_slice();
+        assert_eq!(slice.len(), 2);
+        assert_eq!(slice[0], Pair::new(0.0, 1.0));
+        assert_eq!(slice[1], Pair::new(2.0, 3.0));
+    }
+
+    #[test]
+    fn duration() {
+        assert_eq!(new_test_seq().duration(), 2.0);
+    }
+
+    #[test]
+    fn min() {
+        assert_eq!(new_test_seq().min(), 1.0);
+    }
+
+    #[test]
+    fn max() {
+        assert_eq!(new_test_seq().max(), 3.0);
     }
 }
 
@@ -241,106 +306,6 @@ impl SeqBuilder {
     }
 }
 
-const NON_ZERO_TIME_ERR_MSG: &str = "time/value sequence must start with 0.0 time";
-const TIME_NOT_INCREASING_ERR_MSG: &str = "time is not increasing";
-
-/// Error returned from `SeqBuilder::try_push` method.
-///
-/// Each variant contains a `Pair` that caused the error.
-#[derive(Debug, PartialEq)]
-pub enum SeqError {
-    /// Indicates that the `Pair` was going to be the first within the sequence
-    /// but its time is not 0.0.
-    NonZeroTime(Pair),
-
-    /// Indicates that the `Pair` contains time that is less than or equal to
-    /// time of the last successfuly added `Pair`.
-    TimeNotIncreasing(Pair),
-}
-
-impl Error for SeqError {
-    fn description(&self) -> &str {
-        match *self {
-            SeqError::NonZeroTime(_) => NON_ZERO_TIME_ERR_MSG,
-            SeqError::TimeNotIncreasing(_) => TIME_NOT_INCREASING_ERR_MSG,
-        }
-    }
-}
-
-impl fmt::Display for SeqError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            SeqError::NonZeroTime(ref pair) => write!(f, "NonZeroTime{}", pair),
-            SeqError::TimeNotIncreasing(ref pair) => write!(f, "TimeNotIncreasing{}", pair),
-        }
-    }
-}
-
-#[cfg(test)]
-mod pair_tests {
-    use super::*;
-
-    #[test]
-    fn new() {
-        let pair = Pair::new(0.0, 1.0);
-        assert_eq!(pair.time(), 0.0);
-        assert_eq!(pair.value(), 1.0);
-    }
-
-    #[test]
-    #[should_panic(expected = "time can't be negative")]
-    fn new_panics_on_negative_time() {
-        Pair::new(-1.0, 1.0);
-    }
-
-    #[test]
-    fn display() {
-        assert_eq!(Pair::new(0.1, 2.3).to_string(), "(0.1, 2.3)");
-    }
-}
-
-#[cfg(test)]
-mod seq_tests {
-    use super::*;
-
-    fn new_test_seq() -> Seq {
-        let pairs = vec![Pair::new(0.0, 1.0), Pair::new(2.0, 3.0)];
-        Seq::new(pairs)
-    }
-
-    #[test]
-    fn new() {
-        let seq = new_test_seq();
-        assert_eq!(seq.pairs.len(), 2);
-        assert_eq!(seq.pairs[0], Pair::new(0.0, 1.0));
-        assert_eq!(seq.pairs[1], Pair::new(2.0, 3.0));
-    }
-
-    #[test]
-    fn as_slice() {
-        let seq = new_test_seq();
-        let slice = seq.as_slice();
-        assert_eq!(slice.len(), 2);
-        assert_eq!(slice[0], Pair::new(0.0, 1.0));
-        assert_eq!(slice[1], Pair::new(2.0, 3.0));
-    }
-
-    #[test]
-    fn duration() {
-        assert_eq!(new_test_seq().duration(), 2.0);
-    }
-
-    #[test]
-    fn min() {
-        assert_eq!(new_test_seq().min(), 1.0);
-    }
-
-    #[test]
-    fn max() {
-        assert_eq!(new_test_seq().max(), 3.0);
-    }
-}
-
 #[cfg(test)]
 mod seq_builder_tests {
     use super::*;
@@ -437,6 +402,41 @@ mod seq_builder_tests {
         assert_eq!(builder.pairs[0], Pair::new(0.0, 1.0));
         builder.push(Pair::new(0.1, 1.1));
         assert!(builder.build().is_ok());
+    }
+}
+
+const NON_ZERO_TIME_ERR_MSG: &str = "time/value sequence must start with 0.0 time";
+const TIME_NOT_INCREASING_ERR_MSG: &str = "time is not increasing";
+
+/// Error returned from `SeqBuilder::try_push` method.
+///
+/// Each variant contains a `Pair` that caused the error.
+#[derive(Debug, PartialEq)]
+pub enum SeqError {
+    /// Indicates that the `Pair` was going to be the first within the sequence
+    /// but its time is not 0.0.
+    NonZeroTime(Pair),
+
+    /// Indicates that the `Pair` contains time that is less than or equal to
+    /// time of the last successfuly added `Pair`.
+    TimeNotIncreasing(Pair),
+}
+
+impl Error for SeqError {
+    fn description(&self) -> &str {
+        match *self {
+            SeqError::NonZeroTime(_) => NON_ZERO_TIME_ERR_MSG,
+            SeqError::TimeNotIncreasing(_) => TIME_NOT_INCREASING_ERR_MSG,
+        }
+    }
+}
+
+impl fmt::Display for SeqError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SeqError::NonZeroTime(ref pair) => write!(f, "NonZeroTime{}", pair),
+            SeqError::TimeNotIncreasing(ref pair) => write!(f, "TimeNotIncreasing{}", pair),
+        }
     }
 }
 

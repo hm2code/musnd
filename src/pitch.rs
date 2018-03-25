@@ -272,6 +272,149 @@ impl FromStr for Pitch {
     }
 }
 
+#[cfg(test)]
+mod pitch_tests {
+    use super::*;
+
+    #[test]
+    fn created_from_u7() {
+        assert_eq!(Pitch::from(U7::from(123)).0, 123);
+    }
+
+    #[test]
+    fn converted_to_u7() {
+        assert_eq!(U7::from(Pitch(18)), U7::from(18));
+    }
+
+    #[test]
+    fn converted_to_u8() {
+        assert_eq!(u8::from(Pitch(18)), 18);
+    }
+
+    #[test]
+    fn created_from_freq() {
+        assert_eq!(Pitch::from_freq(430.0).unwrap().0, 69);
+        assert_eq!(Pitch::from_freq(440.0).unwrap().0, 69);
+        assert_eq!(Pitch::from_freq(450.0).unwrap().0, 69);
+
+        assert_eq!(Pitch::from_freq(8.176).unwrap().0, 0);
+        assert_eq!(Pitch::from_freq(12543.9).unwrap().0, U7::MAX);
+
+        assert_eq!(Pitch::from_freq(Pitch::MIN_FREQ).unwrap().0, 0);
+        assert_eq!(Pitch::from_freq(Pitch::MAX_FREQ).unwrap().0, U7::MAX);
+    }
+
+    #[test]
+    fn from_freq_can_fail() {
+        assert_eq!(
+            Pitch::from_freq(7.9).unwrap_err(),
+            Error::FreqOutOfRange(7.9)
+        );
+        assert_eq!(
+            Pitch::from_freq(12900.1).unwrap_err(),
+            Error::FreqOutOfRange(12900.1)
+        );
+    }
+
+    #[test]
+    fn parsed_from_str_char() {
+        assert_eq!("C".parse::<Pitch>().unwrap(), Pitch(60));
+        assert_eq!("D".parse::<Pitch>().unwrap(), Pitch(62));
+        assert_eq!("E".parse::<Pitch>().unwrap(), Pitch(64));
+        assert_eq!("F".parse::<Pitch>().unwrap(), Pitch(65));
+        assert_eq!("G".parse::<Pitch>().unwrap(), Pitch(67));
+        assert_eq!("A".parse::<Pitch>().unwrap(), Pitch(69));
+        assert_eq!("B".parse::<Pitch>().unwrap(), Pitch(71));
+    }
+
+    #[test]
+    fn parsed_from_str_sharp() {
+        assert_eq!("C#".parse::<Pitch>().unwrap(), Pitch(61));
+        assert_eq!("G#".parse::<Pitch>().unwrap(), Pitch(68));
+        assert_eq!("E#".parse::<Pitch>().unwrap(), Pitch(65));
+    }
+
+    #[test]
+    fn parsed_from_str_flat() {
+        assert_eq!("Eb".parse::<Pitch>().unwrap(), Pitch(63));
+        assert_eq!("Bb".parse::<Pitch>().unwrap(), Pitch(70));
+        assert_eq!("Cb".parse::<Pitch>().unwrap(), Pitch(59));
+    }
+
+    #[test]
+    fn parsed_from_str() {
+        assert_eq!("C-1".parse::<Pitch>().unwrap(), Pitch::MIN);
+        assert_eq!("C#0".parse::<Pitch>().unwrap(), Pitch(13));
+        assert_eq!("Bb1".parse::<Pitch>().unwrap(), Pitch(34));
+        assert_eq!("G9".parse::<Pitch>().unwrap(), Pitch::MAX);
+    }
+
+    #[test]
+    fn parse_can_fail() {
+        assert_eq!(
+            "".parse::<Pitch>().unwrap_err(),
+            Error::Parse("<empty string>".to_string())
+        );
+        assert_eq!(
+            "&".parse::<Pitch>().unwrap_err(),
+            Error::Parse("&".to_string())
+        );
+        assert_eq!(
+            "x".parse::<Pitch>().unwrap_err(),
+            Error::Parse("x".to_string())
+        );
+        assert_eq!(
+            "Foo Fighters".parse::<Pitch>().unwrap_err(),
+            Error::Parse("Foo Fighters".to_string())
+        );
+        assert_eq!(
+            "Abba".parse::<Pitch>().unwrap_err(),
+            Error::Parse("Abba".to_string())
+        );
+        assert_eq!(
+            "C# Language".parse::<Pitch>().unwrap_err(),
+            Error::Parse("C# Language".to_string())
+        );
+        assert_eq!("C-2".parse::<Pitch>().unwrap_err(), Error::OutOfRange(-12));
+        assert_eq!("A9".parse::<Pitch>().unwrap_err(), Error::OutOfRange(129));
+    }
+
+    #[test]
+    fn formatted() {
+        assert_eq!(format!("{}", Pitch::MIN), "C-1");
+        assert_eq!(format!("{}", Pitch(1)), "C#-1");
+
+        assert_eq!(Pitch(U7::MAX - 1).to_string(), "F#9");
+        assert_eq!(Pitch::MAX.to_string(), "G9");
+    }
+
+    #[test]
+    fn converted_to_string() {
+        assert_eq!(String::from(Pitch(69)), "A4");
+        assert_eq!(String::from(Pitch(70)), "A#4");
+    }
+
+    #[test]
+    fn octave() {
+        assert_eq!(Pitch::MIN.octave(), -1);
+        assert_eq!(Pitch(60).octave(), 4);
+        assert_eq!(Pitch::MAX.octave(), 9);
+    }
+
+    #[test]
+    fn freq() {
+        assert_eq!(Pitch(69).freq(), 440.0);
+        assert_eq!(Pitch(57).freq(), 220.0);
+        assert_eq!(Pitch(81).freq(), 880.0);
+
+        assert_eq!(Pitch::MIN.freq(), 8.175798);
+        assert_eq!(Pitch::MAX.freq(), 12543.855);
+
+        assert!(Pitch::MIN.freq() > Pitch::MIN_FREQ);
+        assert!(Pitch::MAX.freq() < Pitch::MAX_FREQ);
+    }
+}
+
 /// Represents a pitch class.
 ///
 /// A pitch class is a set of all pitches (notes) that are a whole number of
@@ -544,149 +687,6 @@ impl Sub<PitchClass> for PitchClass {
         let lhs = self as i32;
         let rhs = rhs as i32;
         ((rhs - lhs + 12) % 12, (lhs - rhs + 12) % 12)
-    }
-}
-
-#[cfg(test)]
-mod pitch_tests {
-    use super::*;
-
-    #[test]
-    fn created_from_u7() {
-        assert_eq!(Pitch::from(U7::from(123)).0, 123);
-    }
-
-    #[test]
-    fn converted_to_u7() {
-        assert_eq!(U7::from(Pitch(18)), U7::from(18));
-    }
-
-    #[test]
-    fn converted_to_u8() {
-        assert_eq!(u8::from(Pitch(18)), 18);
-    }
-
-    #[test]
-    fn created_from_freq() {
-        assert_eq!(Pitch::from_freq(430.0).unwrap().0, 69);
-        assert_eq!(Pitch::from_freq(440.0).unwrap().0, 69);
-        assert_eq!(Pitch::from_freq(450.0).unwrap().0, 69);
-
-        assert_eq!(Pitch::from_freq(8.176).unwrap().0, 0);
-        assert_eq!(Pitch::from_freq(12543.9).unwrap().0, U7::MAX);
-
-        assert_eq!(Pitch::from_freq(Pitch::MIN_FREQ).unwrap().0, 0);
-        assert_eq!(Pitch::from_freq(Pitch::MAX_FREQ).unwrap().0, U7::MAX);
-    }
-
-    #[test]
-    fn from_freq_can_fail() {
-        assert_eq!(
-            Pitch::from_freq(7.9).unwrap_err(),
-            Error::FreqOutOfRange(7.9)
-        );
-        assert_eq!(
-            Pitch::from_freq(12900.1).unwrap_err(),
-            Error::FreqOutOfRange(12900.1)
-        );
-    }
-
-    #[test]
-    fn parsed_from_str_char() {
-        assert_eq!("C".parse::<Pitch>().unwrap(), Pitch(60));
-        assert_eq!("D".parse::<Pitch>().unwrap(), Pitch(62));
-        assert_eq!("E".parse::<Pitch>().unwrap(), Pitch(64));
-        assert_eq!("F".parse::<Pitch>().unwrap(), Pitch(65));
-        assert_eq!("G".parse::<Pitch>().unwrap(), Pitch(67));
-        assert_eq!("A".parse::<Pitch>().unwrap(), Pitch(69));
-        assert_eq!("B".parse::<Pitch>().unwrap(), Pitch(71));
-    }
-
-    #[test]
-    fn parsed_from_str_sharp() {
-        assert_eq!("C#".parse::<Pitch>().unwrap(), Pitch(61));
-        assert_eq!("G#".parse::<Pitch>().unwrap(), Pitch(68));
-        assert_eq!("E#".parse::<Pitch>().unwrap(), Pitch(65));
-    }
-
-    #[test]
-    fn parsed_from_str_flat() {
-        assert_eq!("Eb".parse::<Pitch>().unwrap(), Pitch(63));
-        assert_eq!("Bb".parse::<Pitch>().unwrap(), Pitch(70));
-        assert_eq!("Cb".parse::<Pitch>().unwrap(), Pitch(59));
-    }
-
-    #[test]
-    fn parsed_from_str() {
-        assert_eq!("C-1".parse::<Pitch>().unwrap(), Pitch::MIN);
-        assert_eq!("C#0".parse::<Pitch>().unwrap(), Pitch(13));
-        assert_eq!("Bb1".parse::<Pitch>().unwrap(), Pitch(34));
-        assert_eq!("G9".parse::<Pitch>().unwrap(), Pitch::MAX);
-    }
-
-    #[test]
-    fn parse_can_fail() {
-        assert_eq!(
-            "".parse::<Pitch>().unwrap_err(),
-            Error::Parse("<empty string>".to_string())
-        );
-        assert_eq!(
-            "&".parse::<Pitch>().unwrap_err(),
-            Error::Parse("&".to_string())
-        );
-        assert_eq!(
-            "x".parse::<Pitch>().unwrap_err(),
-            Error::Parse("x".to_string())
-        );
-        assert_eq!(
-            "Foo Fighters".parse::<Pitch>().unwrap_err(),
-            Error::Parse("Foo Fighters".to_string())
-        );
-        assert_eq!(
-            "Abba".parse::<Pitch>().unwrap_err(),
-            Error::Parse("Abba".to_string())
-        );
-        assert_eq!(
-            "C# Language".parse::<Pitch>().unwrap_err(),
-            Error::Parse("C# Language".to_string())
-        );
-        assert_eq!("C-2".parse::<Pitch>().unwrap_err(), Error::OutOfRange(-12));
-        assert_eq!("A9".parse::<Pitch>().unwrap_err(), Error::OutOfRange(129));
-    }
-
-    #[test]
-    fn formatted() {
-        assert_eq!(format!("{}", Pitch::MIN), "C-1");
-        assert_eq!(format!("{}", Pitch(1)), "C#-1");
-
-        assert_eq!(Pitch(U7::MAX - 1).to_string(), "F#9");
-        assert_eq!(Pitch::MAX.to_string(), "G9");
-    }
-
-    #[test]
-    fn converted_to_string() {
-        assert_eq!(String::from(Pitch(69)), "A4");
-        assert_eq!(String::from(Pitch(70)), "A#4");
-    }
-
-    #[test]
-    fn octave() {
-        assert_eq!(Pitch::MIN.octave(), -1);
-        assert_eq!(Pitch(60).octave(), 4);
-        assert_eq!(Pitch::MAX.octave(), 9);
-    }
-
-    #[test]
-    fn freq() {
-        assert_eq!(Pitch(69).freq(), 440.0);
-        assert_eq!(Pitch(57).freq(), 220.0);
-        assert_eq!(Pitch(81).freq(), 880.0);
-
-        assert_eq!(Pitch::MIN.freq(), 8.175798);
-        assert_eq!(Pitch::MAX.freq(), 12543.855);
-
-        assert!(Pitch::MIN.freq() > Pitch::MIN_FREQ);
-        assert!(Pitch::MAX.freq() < Pitch::MAX_FREQ);
     }
 }
 
