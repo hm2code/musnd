@@ -1,4 +1,4 @@
-//! Small (less than byte) integers.
+//! Unsigned integers of non-standard size.
 
 /// An immutable 3-bit unsigned integer.
 #[derive(Copy, Clone, Debug, PartialEq)]
