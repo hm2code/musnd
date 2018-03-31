@@ -323,3 +323,77 @@ mod u14_tests {
         assert_eq!(U14::try_from(0x4567), None);
     }
 }
+
+/// An immutable 15-bit unsigned integer.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct U15(u16);
+
+impl U15 {
+    /// Maximal `u16` value that can fit into `U15`.
+    pub const MAX: u16 = 0x7FFF;
+
+    /// Tries to convert `v` into `U15`.
+    ///
+    /// The conversion is possible only if `v` is less than or equal to
+    /// `MAX` value. Use `from` for conversion by ignoring the most significant
+    /// bit.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use musnd::bits::U15;
+    ///
+    /// assert_eq!(U15::try_from(0x7FFF), Some(U15::from(0x7FFF)));
+    /// assert_eq!(U15::try_from(0x8000), None);
+    /// ```
+    pub fn try_from(v: u16) -> Option<U15> {
+        if v & !U15::MAX == 0 {
+            Some(U15(v))
+        } else {
+            None
+        }
+    }
+}
+
+impl From<u16> for U15 {
+    /// Convets lower 15 bits of `v` into `U15`.
+    ///
+    /// The most significant bit is ignored.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use musnd::bits::U15;
+    ///
+    /// let v = U15::from(0x7FFF);
+    /// assert_eq!(u16::from(v), 0x7FFF);
+    ///
+    /// let v = U15::from(0xFFFF);
+    /// assert_eq!(u16::from(v), 0x7FFF);
+    /// ```
+    fn from(v: u16) -> U15 {
+        U15(v & U15::MAX)
+    }
+}
+
+impl From<U15> for u16 {
+    fn from(v: U15) -> u16 {
+        v.0
+    }
+}
+
+#[cfg(test)]
+mod u15_tests {
+    use super::U15;
+
+    #[test]
+    fn from() {
+        assert_eq!(U15::from(0x0000).0, 0x0000);
+        assert_eq!(U15::from(0x1234).0, 0x1234);
+        assert_eq!(U15::from(0x8765).0, 0x0765);
+    }
+
+    #[test]
+    fn try_from() {
+        assert_eq!(U15::try_from(0x3456), Some(U15::from(0x3456)));
+        assert_eq!(U15::try_from(0x8765), None);
+    }
+}
