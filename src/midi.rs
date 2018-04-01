@@ -5,6 +5,7 @@ use bits::U15;
 /// A MIDI sequence.
 #[derive(Debug)]
 pub struct Seq {
+    tracks: Vec<Track>,
     div: Div,
 }
 
@@ -17,23 +18,45 @@ impl Seq {
         if div.ticks() == 0 {
             None
         } else {
-            Some(Seq { div })
+            Some(Seq { tracks: Vec::new(), div })
         }
     }
 
-    /// Returns division of `self`.
+    /// Returns the division.
     pub fn div(&self) -> Div {
         self.div
+    }
+
+    /// Returns the number of tracks.
+    pub fn track_count(&self) -> usize {
+        self.tracks.len()
+    }
+
+    /// Returns the duration in ticks.
+    pub fn duration(&self) -> usize {
+        0
+    }
+
+    /// Returns the tracks.
+    pub fn tracks(&self) -> &[Track] {
+        &self.tracks[..]
+    }
+
+    /// Adds a track to `self`.
+    ///
+    /// # Returns
+    /// Returns an index that can be used to locate the `track` within a slice
+    /// returned by `tracks()` method.
+    pub fn add(&mut self, track: Track) -> usize {
+        self.tracks.push(track);
+        self.tracks.len() - 1
     }
 }
 
 #[cfg(test)]
 mod seq_tests {
     use bits::U15;
-    use super::{
-        Seq,
-        Div,
-    };
+    use super::{Div, Seq, Track};
 
     #[test]
     fn new_sets_div() {
@@ -75,6 +98,45 @@ mod seq_tests {
     fn new_fails_on_smpte30_0() {
         assert!(Seq::new(Div::SMPTE30(0)).is_none());
     }
+
+    #[test]
+    fn new_has_zero_track_count() {
+        assert_eq!(Seq::new(Div::SMPTE25(10)).unwrap().track_count(), 0);
+    }
+
+    #[test]
+    fn new_has_zero_duration() {
+        assert_eq!(Seq::new(Div::SMPTE30(1)).unwrap().duration(), 0);
+    }
+
+    #[test]
+    fn new_has_no_tracks() {
+        assert!(Seq::new(Div::SMPTE24(5)).unwrap().tracks().is_empty());
+    }
+
+    #[test]
+    fn add_updates_track_count() {
+        let mut seq = Seq::new(Div::SMPTE25(1)).unwrap();
+        seq.add(Track::new());
+
+        assert_eq!(seq.track_count(), 1);
+    }
+
+    #[test]
+    fn add_updates_tracks() {
+        let mut seq = Seq::new(Div::SMPTE25(1)).unwrap();
+        seq.add(Track::new());
+
+        assert_eq!(seq.tracks().len(), 1);
+    }
+
+    #[test]
+    fn add_returns_index() {
+        let mut seq = Seq::new(Div::SMPTE25(1)).unwrap();
+
+        assert_eq!(seq.add(Track::new()), 0);
+        assert_eq!(seq.add(Track::new()), 1);
+    }
 }
 
 /// A MIDI sequence division.
@@ -110,11 +172,11 @@ impl Div {
         use self::Div::*;
 
         match *self {
-            | PPQ(ticks) => u16::from(ticks) as usize,
-            | SMPTE24(ticks) => ticks as usize,
-            | SMPTE25(ticks) => ticks as usize,
-            | SMPTE30Drop(ticks) => ticks as usize,
-            | SMPTE30(ticks) => ticks as usize,
+            PPQ(ticks) => u16::from(ticks) as usize,
+            SMPTE24(ticks) => ticks as usize,
+            SMPTE25(ticks) => ticks as usize,
+            SMPTE30Drop(ticks) => ticks as usize,
+            SMPTE30(ticks) => ticks as usize,
         }
     }
 
@@ -123,11 +185,11 @@ impl Div {
         use self::Div::*;
 
         match *self {
-            | SMPTE24(_) => 24.0,
-            | SMPTE25(_) => 25.0,
-            | SMPTE30Drop(_) => 30.0 / 1.001,
-            | SMPTE30(_) => 30.0,
-            | _ => 0.0,
+            PPQ(_) => 0.0,
+            SMPTE24(_) => 24.0,
+            SMPTE25(_) => 25.0,
+            SMPTE30Drop(_) => 30.0 / 1.001,
+            SMPTE30(_) => 30.0,
         }
     }
 }
@@ -185,5 +247,32 @@ mod div_tests {
     #[test]
     fn fps_smpte30() {
         assert_eq!(SMPTE30(4).fps(), 30.0);
+    }
+}
+
+/// A MIDI track.
+#[derive(Debug)]
+pub struct Track {
+}
+
+impl Track {
+    /// Creates a new empty track.
+    pub fn new() -> Track {
+        Track {}
+    }
+
+    /// Returns the duration in ticks.
+    pub fn duration(&self) -> usize {
+        0
+    }
+}
+
+#[cfg(test)]
+mod track_tests {
+    use super::Track;
+
+    #[test]
+    fn new_has_zero_duration() {
+        assert_eq!(Track::new().duration(), 0);
     }
 }
