@@ -2,8 +2,7 @@
 
 use std::cmp;
 
-use bits::{U3, U4, U7, U14, U15};
-use pitch::Pitch;
+use bits::U15;
 
 /// A MIDI sequence.
 #[derive(Debug)]
@@ -21,7 +20,10 @@ impl Seq {
         if div.ticks() == 0 {
             None
         } else {
-            Some(Seq { tracks: Vec::new(), div })
+            Some(Seq {
+                tracks: Vec::new(),
+                div,
+            })
         }
     }
 
@@ -256,7 +258,7 @@ mod div_tests {
 /// A MIDI track.
 #[derive(Debug)]
 pub struct Track {
-    data: Vec<u8>
+    data: Vec<u8>,
 }
 
 impl Track {
@@ -270,7 +272,9 @@ impl Track {
     /// This method is useful when the length of the track raw data is known,
     /// for example, when reading from SMF file.
     pub fn with_capacity(capacity: usize) -> Track {
-        Track { data: Vec::with_capacity(capacity) }
+        Track {
+            data: Vec::with_capacity(capacity),
+        }
     }
 
     /// Returns the duration in ticks.
@@ -291,22 +295,6 @@ impl Track {
     /// track chunk of SMF file.
     pub fn add_raw(&mut self, data: &[u8]) {
         self.data.extend_from_slice(data);
-    }
-
-    // Returns the value of Variable-Length Quantity (VLQ) located within the
-    // raw data at the specified position and the size the VLQ data in bytes.
-    // Note: 0x0FFF_FFFF is the largest value allowed by the MIDI spec.
-    fn vlq_at(&self, pos: usize) -> Option<(usize, usize)> {
-        let mut value = 0usize;
-        for i in pos..cmp::min(pos + 4, self.data.len()) {
-            let byte = self.data[i];
-            let bits7 = byte & 0x7F;
-            value = value << 7 | bits7 as usize;
-            if byte == bits7 {
-                return Some((value, i - pos + 1));
-            }
-        }
-        None
     }
 }
 
@@ -364,102 +352,250 @@ mod track_tests {
 
         assert_eq!(track.duration(), 192);
     }
+}
+
+/// Represents a raw MIDI event.
+pub struct RawEvent<'a> {
+    /// Raw MIDI message.
+    pub raw_msg: &'a [u8],
+    /// The number of ticks elapsed since the beginning of the MIDI sequence.
+    pub ticks: usize,
+}
+
+impl<'a> RawEvent<'a> {
+    // Parses `data` starting at `pos` index and returns `RawEvent` and its
+    // number of bytes within the data.
+    fn parse(
+        data: &'a [u8],
+        pos: usize,
+        prev_ticks: usize, // ticks value of the previous event
+        prev_status: u8,   // status of the previous event
+    ) -> Option<(RawEvent, usize)> {
+        if let Some((delta_ticks, ticks_len)) = vlq(data, pos) {
+            let msg_start = pos + ticks_len;
+            if msg_start < data.len() {
+                let status = data[msg_start];
+                let msg_len = if is_status_byte(status) {
+                    msg_len_for_status(status)
+                } else {
+                    msg_len_for_status(prev_status) - 1
+                };
+
+                let msg_end = msg_start + msg_len;
+                if msg_end <= data.len() {
+                    return Some((
+                        RawEvent {
+                            raw_msg: &data[msg_start..msg_end],
+                            ticks: prev_ticks + delta_ticks,
+                        },
+                        ticks_len + msg_len,
+                    ));
+                }
+            }
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod raw_event_tests {
+    use super::RawEvent;
+
+    const DATA: [u8; 33] = [
+            0x01, 0x80, 0x01, 0x02, // note off
+            0x02, 0x90, 0x03, 0x04, // note on
+            0x03, 0xA0, 0x05, 0x06, // polyphonic key pressure
+            0x04, 0xB0, 0x07, 0x08, // control change / ch mode
+            0x05, 0xC0, 0x09,       // program change
+            0x06, 0xD0, 0x0A,       // channel pressure
+            0x07, 0xE0, 0x0B, 0x0C, // pitch bend change
+            0x08, 0xB1, 0x0D, 0x0E, // control change on channel 2
+            0x09,       0x0F, 0x10, // a running status
+    ];
 
     #[test]
-    fn vlq_at_reads_byte() {
-        let mut track = Track::new();
-        track.add_raw(&[0]);
+    fn parse_note_off() {
+        let (event, count) = RawEvent::parse(&DATA[..], 0, 0, 0).unwrap();
 
-        let (value, count) = track.vlq_at(0).unwrap();
+        assert_eq!(count, 4);
+        assert_eq!(event.ticks, 1);
+        assert_eq!(event.raw_msg, &[0b1000_0000, 0x01, 0x02]);
+    }
+
+    #[test]
+    fn parse_note_on() {
+        let (event, count) = RawEvent::parse(&DATA[..], 4, 0, 0).unwrap();
+
+        assert_eq!(count, 4);
+        assert_eq!(event.ticks, 2);
+        assert_eq!(event.raw_msg, &[0b1001_0000, 0x03, 0x04]);
+    }
+
+    #[test]
+    fn parse_poly_key_press() {
+        let (event, count) = RawEvent::parse(&DATA[..], 8, 0, 0).unwrap();
+
+        assert_eq!(count, 4);
+        assert_eq!(event.ticks, 3);
+        assert_eq!(event.raw_msg, &[0b1010_0000, 0x05, 0x06]);
+    }
+
+    #[test]
+    fn parse_control() {
+        let (event, count) = RawEvent::parse(&DATA[..], 12, 0, 0).unwrap();
+
+        assert_eq!(count, 4);
+        assert_eq!(event.ticks, 4);
+        assert_eq!(event.raw_msg, &[0b1011_0000, 0x07, 0x08]);
+    }
+
+    #[test]
+    fn parse_program() {
+        let (event, count) = RawEvent::parse(&DATA[..], 16, 0, 0).unwrap();
+
+        assert_eq!(count, 3);
+        assert_eq!(event.ticks, 5);
+        assert_eq!(event.raw_msg, &[0b1100_0000, 0x09]);
+    }
+
+    #[test]
+    fn parse_channel_press() {
+        let (event, count) = RawEvent::parse(&DATA[..], 19, 0, 0).unwrap();
+
+        assert_eq!(count, 3);
+        assert_eq!(event.ticks, 6);
+        assert_eq!(event.raw_msg, &[0b1101_0000, 0x0A]);
+    }
+
+    #[test]
+    fn parse_channel_pitch_bend() {
+        let (event, count) = RawEvent::parse(&DATA[..], 22, 0, 0).unwrap();
+
+        assert_eq!(count, 4);
+        assert_eq!(event.ticks, 7);
+        assert_eq!(event.raw_msg, &[0b1110_0000, 0x0B, 0x0C]);
+    }
+
+    #[test]
+    fn parse_control_ch2() {
+        let (event, count) = RawEvent::parse(&DATA[..], 26, 0, 0).unwrap();
+
+        assert_eq!(count, 4);
+        assert_eq!(event.ticks, 8);
+        assert_eq!(event.raw_msg, &[0b1011_0001, 0x0D, 0x0E]);
+    }
+
+    #[test]
+    fn parse_control_running_status() {
+        let (event, count) = RawEvent::parse(&DATA[..], 30, 0, 0xB1).unwrap();
+
+        assert_eq!(count, 3);
+        assert_eq!(event.ticks, 9);
+        assert_eq!(event.raw_msg, &[0x0F, 0x10]);
+    }
+
+    #[test]
+    fn parse_reads_ticks_vlq() {
+        let data: [u8; 5] = [0x81, 0x40, 0x80, 0x40, 0x7F];
+
+        let (event, count) = RawEvent::parse(&data[..], 0, 0, 0).unwrap();
+
+        assert_eq!(count, 5);
+        assert_eq!(event.ticks, 192);
+        assert_eq!(event.raw_msg, &[0b1000_0000, 0x40, 0x7F]);
+    }
+
+    #[test]
+    fn parse_fails_on_bad_vlq() {
+        assert!(RawEvent::parse(&[0xFF], 0, 0, 0).is_none());
+    }
+
+    #[test]
+    fn parse_fails_on_bad_data() {
+        assert!(RawEvent::parse(&[], 0, 0, 0).is_none());
+        assert!(RawEvent::parse(&[0x00], 0, 0, 0).is_none());
+        assert!(RawEvent::parse(&[0x00, 0x80], 0, 0, 0).is_none());
+    }
+}
+
+// Returns true if `byte` is a MIDI status byte.
+fn is_status_byte(byte: u8) -> bool {
+    byte & 0x80 != 0
+}
+
+// Returns the value of Variable-Length Quantity (VLQ) located within the
+// raw data at the specified position and the size the VLQ data in bytes.
+// Note: 0b0FFF_FFFF is the largest value allowed by the MIDI spec.
+fn vlq(data: &[u8], pos: usize) -> Option<(usize, usize)> {
+    let mut value = 0usize;
+    for i in pos..cmp::min(pos + 4, data.len()) {
+        let byte = data[i];
+        let bits7 = byte & 0x7F;
+        value = value << 7 | bits7 as usize;
+        if byte == bits7 {
+            return Some((value, i - pos + 1));
+        }
+    }
+    None
+}
+
+fn msg_len_for_status(status: u8) -> usize {
+    let status = status >> 4;
+    if status > 0b1011 && status < 0b1110 {
+        2usize
+    } else {
+        3usize
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_status_byte_works() {
+        assert!(is_status_byte(0x80));
+        assert!(!is_status_byte(0x7F));
+    }
+
+    #[test]
+    fn vlq_reads_byte() {
+        let data: [u8; 2] = [0, 1];
+        let slice = &data[..];
+        let (value, count) = vlq(slice, 0).unwrap();
 
         assert_eq!(value, 0);
         assert_eq!(count, 1);
 
-        track.add_raw(&[1]);
-
-        assert_eq!(track.vlq_at(1), Some((1, 1)));
+        assert_eq!(vlq(slice, 1), Some((1, 1)));
     }
 
     #[test]
-    fn vlq_at_reads_multibyte() {
-        let mut track = Track::new();
-        track.add_raw(&[
-                      0x81, 0x00,               // 0x0000_0080, 2
-                      0xC0, 0x80, 0x00,         // 0x0010_0000, 3
-                      0xFF, 0xFF, 0xFF, 0x7F,   // 0x0FFF_FFFF, 4
-        ]);
+    fn vlq_reads_multibyte() {
+        let data: [u8; 9] = [
+                      0x81, 0x00,               // 0b0000_0080, 2
+                      0xC0, 0x80, 0x00,         // 0b0010_0000, 3
+                      0xFF, 0xFF, 0xFF, 0x7F,   // 0b0FFF_FFFF, 4
+        ];
+        let slice = &data[..];
 
-        assert_eq!(track.vlq_at(0), Some((0x0000_0080, 2)));
-        assert_eq!(track.vlq_at(2), Some((0x0010_0000, 3)));
-        assert_eq!(track.vlq_at(5), Some((0x0FFF_FFFF, 4)));
+        assert_eq!(vlq(slice, 0), Some((0x0000_0080, 2)));
+        assert_eq!(vlq(slice, 2), Some((0x0010_0000, 3)));
+        assert_eq!(vlq(slice, 5), Some((0x0FFF_FFFF, 4)));
     }
 
     #[test]
-    fn vlq_at_fails_on_overflow() {
-        let mut track = Track::new();
-        track.add_raw(&[0xFF, 0xFF, 0xFF, 0xFF, 0x7F]);
-
-        assert!(track.vlq_at(0).is_none());
+    fn vlq_fails_on_overflow() {
+        assert!(vlq(&[0xFF, 0xFF, 0xFF, 0xFF, 0x7F], 0).is_none());
     }
 
     #[test]
-    fn vlq_at_fails_on_bad_data() {
-        let mut track = Track::new();
-        track.add_raw(&[0xFF]);
-
-        assert!(track.vlq_at(0).is_none());
+    fn vlq_fails_on_bad_data() {
+        assert!(vlq(&[0xFF], 0).is_none());
     }
 
     #[test]
-    fn vlq_at_fails_on_bad_pos() {
-        assert!(Track::new().vlq_at(123).is_none());
+    fn vlq_fails_on_bad_pos() {
+        assert!(vlq(&[], 123).is_none());
     }
-}
-
-/// Channel MIDI messages.
-pub enum ChannelMsg {
-    NoteOff { channel: U4, pitch: Pitch, velocity: U7 },
-    NoteOn { channel: U4, pitch: Pitch, velocity: U7 },
-    PolyKeyPress { channel: U4, pitch: Pitch, pressure: U7 },
-    Control { channel: U4, controller: U7, value: U7 },
-    Program { channel: U4, program: U7 },
-    Press { channel: U4, pressure: U7 },
-    PitchBend { channel: U4, value: U14 },
-    Mode { channel: U4, mode: ChannelMode },
-}
-
-/// Holds data for `ChannelMsg::Mode` message.
-pub enum ChannelMode {
-    SoundOff,
-    ResetControllers,
-    LocalControlOff,
-    LocalControlOn,
-    NotesOff,
-    OmniOff,
-    OmniOn,
-    PolyOff(U7),
-    PolyOn,
-}
-
-/// System common MIDI messages.
-pub enum SysMsg {
-    SysEx,
-    TCQF { msg_type: U3, value: U4 },
-    SongPosPtr(U14),
-    SongSelect(U7),
-    TuneRequest,
-    SysExEnd,
-}
-
-/// System real-time (non-SMF) MIDI messages.
-pub enum SysRTMsg {
-    Clock,
-    Start,
-    Continue,
-    ActiveSensing,
-    Reset,
-}
-
-/// Meta (SMF-only) MIDI messages.
-pub enum MetaMsg {
 }
