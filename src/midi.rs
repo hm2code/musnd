@@ -371,28 +371,29 @@ impl<'a> RawEvent<'a> {
         prev_ticks: usize, // ticks value of the previous event
         prev_status: u8,   // status of the previous event
     ) -> Option<(RawEvent, usize)> {
-        if let Some((delta_ticks, ticks_len)) = vlq(data, pos) {
-            let msg_start = pos + ticks_len;
-            if msg_start < data.len() {
-                let status = data[msg_start];
-                let msg_len = if is_status_byte(status) {
-                    msg_len_for_status(status)
-                } else {
-                    msg_len_for_status(prev_status) - 1
-                };
+        let (delta_ticks, ticks_len) = vlq(data, pos)?;
 
-                let msg_end = msg_start + msg_len;
-                if msg_end <= data.len() {
-                    return Some((
-                        RawEvent {
-                            raw_msg: &data[msg_start..msg_end],
-                            ticks: prev_ticks + delta_ticks,
-                        },
-                        ticks_len + msg_len,
-                    ));
-                }
+        let msg_start = pos + ticks_len;
+        if msg_start < data.len() {
+            let status = data[msg_start];
+            let msg_len = if is_status(status) {
+                msg_len_for_status(status)
+            } else {
+                msg_len_for_status(prev_status) - 1
+            };
+
+            let msg_end = msg_start + msg_len;
+            if msg_end <= data.len() {
+                return Some((
+                    RawEvent {
+                        raw_msg: &data[msg_start..msg_end],
+                        ticks: prev_ticks + delta_ticks,
+                    },
+                    ticks_len + msg_len,
+                ));
             }
         }
+
         None
     }
 }
@@ -519,7 +520,7 @@ mod raw_event_tests {
 }
 
 // Returns true if `byte` is a MIDI status byte.
-fn is_status_byte(byte: u8) -> bool {
+fn is_status(byte: u8) -> bool {
     byte & 0x80 != 0
 }
 
@@ -539,9 +540,11 @@ fn vlq(data: &[u8], pos: usize) -> Option<(usize, usize)> {
     None
 }
 
-fn msg_len_for_status(status: u8) -> usize {
-    let status = status >> 4;
-    if status > 0b1011 && status < 0b1110 {
+// Returns length in bytes for a MIDI message that starts with the specified
+// status byte.
+fn msg_len_for_status(byte: u8) -> usize {
+    let byte = byte >> 4;
+    if byte > 0b1011 && byte < 0b1110 {
         2usize
     } else {
         3usize
@@ -553,9 +556,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn is_status_byte_works() {
-        assert!(is_status_byte(0x80));
-        assert!(!is_status_byte(0x7F));
+    fn is_status_works() {
+        assert!(is_status(0x80));
+        assert!(!is_status(0x7F));
     }
 
     #[test]
