@@ -377,9 +377,21 @@ impl<'a> RawEvent<'a> {
         if msg_start < data.len() {
             let status = data[msg_start];
             let msg_len = if is_status(status) {
-                msg_len_for_status(status)
+                if is_ch_msg(status) {
+                    ch_msg_len(status)
+                } else if is_sys_msg(status) {
+                    sys_msg_len(data, msg_start)?
+                } else if is_meta_msg(status) {
+                    meta_msg_len(data, msg_start)?
+                } else {
+                    // Bad data: unknown status byte
+                    return None;
+                }
+            } else if is_ch_msg(prev_status) {
+                ch_msg_len(prev_status) - 1
             } else {
-                msg_len_for_status(prev_status) - 1
+                // Bad data: running status for a non-channel message
+                return None;
             };
 
             let msg_end = msg_start + msg_len;
@@ -402,7 +414,7 @@ impl<'a> RawEvent<'a> {
 mod raw_event_tests {
     use super::RawEvent;
 
-    const DATA: [u8; 33] = [
+    const DATA: [u8; 41] = [
             0x01, 0x80, 0x01, 0x02, // note off
             0x02, 0x90, 0x03, 0x04, // note on
             0x03, 0xA0, 0x05, 0x06, // polyphonic key pressure
@@ -412,6 +424,8 @@ mod raw_event_tests {
             0x07, 0xE0, 0x0B, 0x0C, // pitch bend change
             0x08, 0xB1, 0x0D, 0x0E, // control change on channel 2
             0x09,       0x0F, 0x10, // a running status
+            0x0A, 0xF0, 0x00, 0xF7, // sysex
+            0x0B, 0xFF, 0x2F, 0x00, // meta, end of track
     ];
 
     #[test]
@@ -496,6 +510,24 @@ mod raw_event_tests {
     }
 
     #[test]
+    fn parse_system() {
+        let (event, count) = RawEvent::parse(&DATA[..], 33, 0, 0).unwrap();
+
+        assert_eq!(count, 4);
+        assert_eq!(event.ticks, 10);
+        assert_eq!(event.raw_msg, &[0xF0, 0x00, 0xF7]);
+    }
+
+    #[test]
+    fn parse_meta() {
+        let (event, count) = RawEvent::parse(&DATA[..], 37, 0, 0).unwrap();
+
+        assert_eq!(count, 4);
+        assert_eq!(event.ticks, 11);
+        assert_eq!(event.raw_msg, &[0xFF, 0x2F, 0x00]);
+    }
+
+    #[test]
     fn parse_reads_ticks_vlq() {
         let data: [u8; 5] = [0x81, 0x40, 0x80, 0x40, 0x7F];
 
@@ -516,6 +548,12 @@ mod raw_event_tests {
         assert!(RawEvent::parse(&[], 0, 0, 0).is_none());
         assert!(RawEvent::parse(&[0x00], 0, 0, 0).is_none());
         assert!(RawEvent::parse(&[0x00, 0x80], 0, 0, 0).is_none());
+        assert!(RawEvent::parse(&[0x00, 0xF9], 0, 0, 0).is_none());
+    }
+
+    #[test]
+    fn parse_fails_on_bad_running_status() {
+        assert!(RawEvent::parse(&DATA[..], 30, 0, 0xFF).is_none());
     }
 }
 
@@ -526,7 +564,7 @@ fn is_status(byte: u8) -> bool {
 
 // Returns the value of Variable-Length Quantity (VLQ) located within the
 // raw data at the specified position and the size the VLQ data in bytes.
-// Note: 0b0FFF_FFFF is the largest value allowed by the MIDI spec.
+// Note: 0x0FFF_FFFF is the largest value allowed by the MIDI spec.
 fn vlq(data: &[u8], pos: usize) -> Option<(usize, usize)> {
     let mut value = 0usize;
     for i in pos..cmp::min(pos + 4, data.len()) {
@@ -540,15 +578,64 @@ fn vlq(data: &[u8], pos: usize) -> Option<(usize, usize)> {
     None
 }
 
-// Returns length in bytes for a MIDI message that starts with the specified
+// Returns total length of a channel message that starts with the specified
 // status byte.
-fn msg_len_for_status(byte: u8) -> usize {
-    let byte = byte >> 4;
-    if byte > 0b1011 && byte < 0b1110 {
-        2usize
+//
+// Call this function only if `is_ch_msg(status)` returns `true`.
+fn ch_msg_len(status: u8) -> usize {
+    let status = status >> 4;
+    if status > 0b1011 && status < 0b1110 {
+        // Program Change; Channel Pressure
+        2
     } else {
-        3usize
+        3
     }
+}
+
+// Returns total length of a system message that starts within `data` at `pos`
+// index.
+//
+// Call this function only if `is_sys_msg(data[pos])` returns `true`.
+fn sys_msg_len(data: &[u8], pos: usize) -> Option<usize> {
+    match data[pos] {
+        0xF0 => {
+            // System Exclusive
+            for i in (pos + 1)..data.len() {
+                if data[i] == 0xF7 {
+                    return Some(i - pos + 1);
+                }
+            }
+            None
+        }
+        0xF1 | 0xF3 => Some(2), // Time Code Quarter Frame and Song Select
+        0xF2 => Some(3),        // Song Position Pointer
+        0xF6 | 0xF7 => Some(1), // Tune Request; End Of System Exclusive
+        _ => None,              // Undefined
+    }
+}
+
+// Returns total length of a meta message that starts within `data` at `pos`
+// index.
+//
+// Call this function only if `is_meta_msg(data[pos])` returns `true`.
+fn meta_msg_len(data: &[u8], pos: usize) -> Option<usize> {
+    let (data_len, len_len) = vlq(data, pos + 2)?;
+    Some(data_len + len_len + 2)
+}
+
+// Returns true if the given status byte represents a channel message.
+fn is_ch_msg(status: u8) -> bool {
+    status > 0x7F && status < 0xF0
+}
+
+// Returns true if the given status byte represents a system message.
+fn is_sys_msg(status: u8) -> bool {
+    status > 0xEF && status < 0xF8
+}
+
+// Returns true if the given status byte represents a meta message.
+fn is_meta_msg(status: u8) -> bool {
+    status == 0xFF
 }
 
 #[cfg(test)]
@@ -576,9 +663,9 @@ mod tests {
     #[test]
     fn vlq_reads_multibyte() {
         let data: [u8; 9] = [
-                      0x81, 0x00,               // 0b0000_0080, 2
-                      0xC0, 0x80, 0x00,         // 0b0010_0000, 3
-                      0xFF, 0xFF, 0xFF, 0x7F,   // 0b0FFF_FFFF, 4
+                      0x81, 0x00,               // 0x0000_0080, 2
+                      0xC0, 0x80, 0x00,         // 0x0010_0000, 3
+                      0xFF, 0xFF, 0xFF, 0x7F,   // 0x0FFF_FFFF, 4
         ];
         let slice = &data[..];
 
@@ -600,5 +687,137 @@ mod tests {
     #[test]
     fn vlq_fails_on_bad_pos() {
         assert!(vlq(&[], 123).is_none());
+    }
+
+    #[test]
+    fn ch_msg_len_note_off() {
+        assert_eq!(ch_msg_len(0x80), 3);
+    }
+
+    #[test]
+    fn ch_msg_len_note_on() {
+        assert_eq!(ch_msg_len(0x91), 3);
+    }
+
+    #[test]
+    fn ch_msg_len_poly_key_press() {
+        assert_eq!(ch_msg_len(0xA2), 3);
+    }
+
+    #[test]
+    fn ch_msg_len_control() {
+        assert_eq!(ch_msg_len(0xB3), 3);
+    }
+
+    #[test]
+    fn ch_msg_len_program() {
+        assert_eq!(ch_msg_len(0xC4), 2);
+    }
+
+    #[test]
+    fn ch_msg_len_channel_press() {
+        assert_eq!(ch_msg_len(0xD5), 2);
+    }
+
+    #[test]
+    fn ch_msg_len_pitch_bend() {
+        assert_eq!(ch_msg_len(0xE6), 3);
+    }
+
+    #[test]
+    fn sys_msg_len_sysex() {
+        assert_eq!(sys_msg_len(&[0x00, 0xF0, 0xF7, 0x00], 1), Some(2));
+    }
+
+    #[test]
+    fn sys_msg_len_sysex2() {
+        assert_eq!(sys_msg_len(&[0xF0, 0x01, 0x02, 0x03, 0xF7], 0), Some(5));
+    }
+
+    #[test]
+    fn sys_msg_len_fails_on_bad_sysex() {
+        assert_eq!(sys_msg_len(&[0xF0], 0), None);
+    }
+
+    #[test]
+    fn sys_msg_len_fails_on_bad_sysex2() {
+        assert_eq!(sys_msg_len(&[0xF0, 0x01, 0x02, 0x03], 0), None);
+    }
+
+    #[test]
+    fn sys_msg_len_tcqf() {
+        assert_eq!(sys_msg_len(&[0xF1], 0), Some(2));
+    }
+
+    #[test]
+    fn sys_msg_len_song_pos_ptr() {
+        assert_eq!(sys_msg_len(&[0xF2], 0), Some(3));
+    }
+
+    #[test]
+    fn sys_msg_len_song_select() {
+        assert_eq!(sys_msg_len(&[0xF3], 0), Some(2));
+    }
+
+    #[test]
+    fn sys_msg_len_undef1() {
+        assert_eq!(sys_msg_len(&[0xF4], 0), None);
+    }
+
+    #[test]
+    fn sys_msg_len_undef2() {
+        assert_eq!(sys_msg_len(&[0xF5], 0), None);
+    }
+
+    #[test]
+    fn sys_msg_len_tune_req() {
+        assert_eq!(sys_msg_len(&[0xF6], 0), Some(1));
+    }
+
+    #[test]
+    fn sys_msg_len_sysex_end() {
+        assert_eq!(sys_msg_len(&[0xF7], 0), Some(1));
+    }
+
+    #[test]
+    fn meta_msg_len_works() {
+        assert_eq!(meta_msg_len(&[0xFF, 0x00, 0x81, 0x00], 0), Some(132));
+    }
+
+    #[test]
+    fn meta_msg_len_works2() {
+        assert_eq!(meta_msg_len(&[0x00, 0xFF, 0x01, 0x01], 1), Some(4));
+    }
+
+    #[test]
+    fn meta_msg_len_fails_on_bad_data() {
+        assert_eq!(meta_msg_len(&[0xFF], 0), None);
+    }
+
+    #[test]
+    fn meta_msg_len_fails_on_bad_data2() {
+        assert_eq!(meta_msg_len(&[0xFF, 0x00, 0xFF], 0), None);
+    }
+
+    #[test]
+    fn is_ch_msg_works() {
+        assert!(!is_ch_msg(0x7F));
+        assert!(is_ch_msg(0x80));
+        assert!(is_ch_msg(0xEF));
+        assert!(!is_ch_msg(0xF0));
+    }
+
+    #[test]
+    fn is_sys_msg_works() {
+        assert!(!is_sys_msg(0xEF));
+        assert!(is_sys_msg(0xF0));
+        assert!(is_sys_msg(0xF7));
+        assert!(!is_sys_msg(0xF8));
+    }
+
+    #[test]
+    fn is_meta_msg_works() {
+        assert!(!is_meta_msg(0xFE));
+        assert!(is_meta_msg(0xFF));
     }
 }
