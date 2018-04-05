@@ -63,6 +63,13 @@ mod seq_tests {
     use bits::U15;
     use super::{Div, Seq, Track};
 
+    fn new_empty_track() -> Track {
+        Track {
+            bytes: Vec::new(),
+            duration: 0,
+        }
+    }
+
     #[test]
     fn new_sets_div() {
         let div = Div::PPQ(U15::from(16));
@@ -122,7 +129,7 @@ mod seq_tests {
     #[test]
     fn add_updates_track_count() {
         let mut seq = Seq::new(Div::SMPTE25(1)).unwrap();
-        seq.add(Track::new());
+        seq.add(new_empty_track());
 
         assert_eq!(seq.track_count(), 1);
     }
@@ -130,7 +137,7 @@ mod seq_tests {
     #[test]
     fn add_updates_tracks() {
         let mut seq = Seq::new(Div::SMPTE25(1)).unwrap();
-        seq.add(Track::new());
+        seq.add(new_empty_track());
 
         assert_eq!(seq.tracks().len(), 1);
     }
@@ -139,8 +146,8 @@ mod seq_tests {
     fn add_returns_index() {
         let mut seq = Seq::new(Div::SMPTE25(1)).unwrap();
 
-        assert_eq!(seq.add(Track::new()), 0);
-        assert_eq!(seq.add(Track::new()), 1);
+        assert_eq!(seq.add(new_empty_track()), 0);
+        assert_eq!(seq.add(new_empty_track()), 1);
     }
 }
 
@@ -258,43 +265,43 @@ mod div_tests {
 /// A MIDI track.
 #[derive(Debug)]
 pub struct Track {
-    data: Vec<u8>,
+    bytes: Vec<u8>,
+    duration: usize,
 }
 
 impl Track {
-    /// Creates a new empty track.
-    pub fn new() -> Track {
-        Track { data: Vec::new() }
-    }
-
-    /// Creates a new empty track with the specified capacity in bytes.
+    /// Creates a new track from the specified raw MIDI data.
     ///
-    /// This method is useful when the length of the track raw data is known,
-    /// for example, when reading from SMF file.
-    pub fn with_capacity(capacity: usize) -> Track {
-        Track {
-            data: Vec::with_capacity(capacity),
+    /// # Errors
+    /// Returns `None` if `bytes` is not a valid sequence of Standard MIDI File
+    /// events (delta time expressed as variable-length quantity followed by
+    /// MIDI message bytes) that ends with End Of Track message (`FF 2F 00`).
+    pub fn new(bytes: Vec<u8>) -> Option<Track> {
+        let len = bytes.len();
+        if len < 4 || &bytes[(len - 3)..] != &[0xFF, 0x2F, 0x00] {
+            return None;
         }
+
+        let duration = {
+            let mut iter = RawEventIter::new(&bytes[..]);
+            while let Some(_) = iter.next() {}
+            if iter.pos != len {
+                return None;
+            }
+            iter.ticks
+        };
+
+        Some(Track { bytes, duration })
     }
 
-    /// Returns the duration in ticks.
+    /// Returns raw MIDI data.
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes[..]
+    }
+
+    /// Returns total track duration in ticks.
     pub fn duration(&self) -> usize {
-        0
-    }
-
-    /// Returns the raw track data.
-    pub fn raw(&self) -> &[u8] {
-        &self.data[..]
-    }
-
-    /// Adds a chunk of raw data.
-    ///
-    /// A copy of the data is appended to the track existing data. No data
-    /// validation is performed so use this method with caution and make sure
-    /// that `data` contains a valid byte sequence that can be stored within a
-    /// track chunk of SMF file.
-    pub fn add_raw(&mut self, data: &[u8]) {
-        self.data.extend_from_slice(data);
+        self.duration
     }
 }
 
@@ -303,61 +310,50 @@ mod track_tests {
     use super::Track;
 
     #[test]
-    fn new_has_zero_duration() {
-        assert_eq!(Track::new().duration(), 0);
+    fn new_wraps_bytes() {
+        let track = Track::new(vec![0x00, 0xFF, 0x2F, 0x00]).unwrap();
+
+        assert_eq!(track.bytes(), &[0x00, 0xFF, 0x2F, 0x00]);
     }
 
     #[test]
-    fn new_has_no_data() {
-        assert!(Track::new().raw().is_empty());
+    fn new_sets_duration() {
+        let data = vec![
+            0x00, 0xC0, 0x60,       // delta time  0, ticks  0
+            0x10, 0x90, 0x60, 0x60, // delta time 16, ticks 16
+            0x20, 0x80, 0x60, 0x70, // delta time 32, ticks 48
+            0x00, 0xFF, 0x2F, 0x00, // delta time  0, ticks 48
+        ];
+        let track = Track::new(data).unwrap();
+
+        assert_eq!(track.duration(), 48);
     }
 
     #[test]
-    fn with_capacity_reserves_capacity() {
-        assert_eq!(Track::with_capacity(128).data.capacity(), 128);
+    fn new_fails_on_bad_data() {
+        assert!(Track::new(vec![]).is_none());
     }
 
     #[test]
-    fn with_capacity_has_zero_duration() {
-        assert_eq!(Track::with_capacity(64).duration(), 0);
+    fn new_fails_on_bad_data2() {
+        assert!(Track::new(vec![1, 2, 3, 4]).is_none());
     }
 
     #[test]
-    fn with_capacity_has_no_data() {
-        assert!(Track::with_capacity(64).raw().is_empty());
+    fn new_fails_on_bad_data3() {
+        assert!(Track::new(vec![0x00, 0x90, 0x60, 0x60]).is_none());
     }
 
     #[test]
-    fn add_raw_appends_data() {
-        let mut track = Track::new();
-        track.add_raw(&[1]);
-
-        assert_eq!(track.raw(), &[1]);
-
-        track.add_raw(&[2]);
-
-        assert_eq!(track.raw(), &[1, 2]);
-    }
-
-    #[ignore]
-    #[test]
-    fn add_raw_updates_duration() {
-        let mut track = Track::new();
-        track.add_raw(&[0x00, 0xC0, 0x05]); // dt: 0, ch: 1, program: 5
-
-        assert_eq!(track.duration(), 0);
-
-        // dt: 192, ch: 1, on: E4, vel: 32
-        track.add_raw(&[0x81, 0x40, 0x90, 0x4C, 0x20]);
-
-        assert_eq!(track.duration(), 192);
+    fn new_fails_on_bad_data4() {
+        assert!(Track::new(vec![0x00, 0x00, 0xFF, 0x2F, 0x00]).is_none());
     }
 }
 
 /// Represents a raw MIDI event.
 pub struct RawEvent<'a> {
     /// Raw MIDI message.
-    pub raw_msg: &'a [u8],
+    pub bytes: &'a [u8],
     /// The number of ticks elapsed since the beginning of the MIDI sequence.
     pub ticks: usize,
 }
@@ -398,7 +394,7 @@ impl<'a> RawEvent<'a> {
             if msg_end <= data.len() {
                 return Some((
                     RawEvent {
-                        raw_msg: &data[msg_start..msg_end],
+                        bytes: &data[msg_start..msg_end],
                         ticks: prev_ticks + delta_ticks,
                     },
                     ticks_len + msg_len,
@@ -434,7 +430,7 @@ mod raw_event_tests {
 
         assert_eq!(count, 4);
         assert_eq!(event.ticks, 1);
-        assert_eq!(event.raw_msg, &[0b1000_0000, 0x01, 0x02]);
+        assert_eq!(event.bytes, &[0b1000_0000, 0x01, 0x02]);
     }
 
     #[test]
@@ -443,7 +439,7 @@ mod raw_event_tests {
 
         assert_eq!(count, 4);
         assert_eq!(event.ticks, 2);
-        assert_eq!(event.raw_msg, &[0b1001_0000, 0x03, 0x04]);
+        assert_eq!(event.bytes, &[0b1001_0000, 0x03, 0x04]);
     }
 
     #[test]
@@ -452,7 +448,7 @@ mod raw_event_tests {
 
         assert_eq!(count, 4);
         assert_eq!(event.ticks, 3);
-        assert_eq!(event.raw_msg, &[0b1010_0000, 0x05, 0x06]);
+        assert_eq!(event.bytes, &[0b1010_0000, 0x05, 0x06]);
     }
 
     #[test]
@@ -461,7 +457,7 @@ mod raw_event_tests {
 
         assert_eq!(count, 4);
         assert_eq!(event.ticks, 4);
-        assert_eq!(event.raw_msg, &[0b1011_0000, 0x07, 0x08]);
+        assert_eq!(event.bytes, &[0b1011_0000, 0x07, 0x08]);
     }
 
     #[test]
@@ -470,7 +466,7 @@ mod raw_event_tests {
 
         assert_eq!(count, 3);
         assert_eq!(event.ticks, 5);
-        assert_eq!(event.raw_msg, &[0b1100_0000, 0x09]);
+        assert_eq!(event.bytes, &[0b1100_0000, 0x09]);
     }
 
     #[test]
@@ -479,7 +475,7 @@ mod raw_event_tests {
 
         assert_eq!(count, 3);
         assert_eq!(event.ticks, 6);
-        assert_eq!(event.raw_msg, &[0b1101_0000, 0x0A]);
+        assert_eq!(event.bytes, &[0b1101_0000, 0x0A]);
     }
 
     #[test]
@@ -488,7 +484,7 @@ mod raw_event_tests {
 
         assert_eq!(count, 4);
         assert_eq!(event.ticks, 7);
-        assert_eq!(event.raw_msg, &[0b1110_0000, 0x0B, 0x0C]);
+        assert_eq!(event.bytes, &[0b1110_0000, 0x0B, 0x0C]);
     }
 
     #[test]
@@ -497,7 +493,7 @@ mod raw_event_tests {
 
         assert_eq!(count, 4);
         assert_eq!(event.ticks, 8);
-        assert_eq!(event.raw_msg, &[0b1011_0001, 0x0D, 0x0E]);
+        assert_eq!(event.bytes, &[0b1011_0001, 0x0D, 0x0E]);
     }
 
     #[test]
@@ -506,7 +502,7 @@ mod raw_event_tests {
 
         assert_eq!(count, 3);
         assert_eq!(event.ticks, 9);
-        assert_eq!(event.raw_msg, &[0x0F, 0x10]);
+        assert_eq!(event.bytes, &[0x0F, 0x10]);
     }
 
     #[test]
@@ -515,7 +511,7 @@ mod raw_event_tests {
 
         assert_eq!(count, 4);
         assert_eq!(event.ticks, 10);
-        assert_eq!(event.raw_msg, &[0xF0, 0x00, 0xF7]);
+        assert_eq!(event.bytes, &[0xF0, 0x00, 0xF7]);
     }
 
     #[test]
@@ -524,7 +520,7 @@ mod raw_event_tests {
 
         assert_eq!(count, 4);
         assert_eq!(event.ticks, 11);
-        assert_eq!(event.raw_msg, &[0xFF, 0x2F, 0x00]);
+        assert_eq!(event.bytes, &[0xFF, 0x2F, 0x00]);
     }
 
     #[test]
@@ -535,7 +531,7 @@ mod raw_event_tests {
 
         assert_eq!(count, 5);
         assert_eq!(event.ticks, 192);
-        assert_eq!(event.raw_msg, &[0b1000_0000, 0x40, 0x7F]);
+        assert_eq!(event.bytes, &[0b1000_0000, 0x40, 0x7F]);
     }
 
     #[test]
@@ -554,6 +550,139 @@ mod raw_event_tests {
     #[test]
     fn parse_fails_on_bad_running_status() {
         assert!(RawEvent::parse(&DATA[..], 30, 0, 0xFF).is_none());
+    }
+}
+
+/// A raw MIDI data iterator.
+pub struct RawEventIter<'a> {
+    data: &'a [u8],
+    pos: usize,   // current  position within data
+    ticks: usize, // current time from the beginning in ticks
+    status: u8,   // current (running) status
+}
+
+impl<'a> RawEventIter<'a> {
+    fn new(data: &'a [u8]) -> RawEventIter<'a> {
+        RawEventIter {
+            data,
+            pos: 0,
+            ticks: 0,
+            status: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for RawEventIter<'a> {
+    type Item = RawEvent<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (event, count) =
+            RawEvent::parse(self.data, self.pos, self.ticks, self.status)?;
+        self.pos += count;
+        self.ticks = event.ticks;
+        if is_status(event.bytes[0]) {
+            self.status = event.bytes[0];
+        }
+        Some(event)
+    }
+}
+
+#[cfg(test)]
+mod raw_event_iter_tests {
+    use super::RawEventIter;
+
+    #[test]
+    fn it_works() {
+        let data: [u8; 65] = [
+            0x00, 0xFF, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08, // time signature
+            0x00, 0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20,       // tempo
+            0x00, 0xC0, 0x05,
+            0x00, 0xC1, 0x2E,
+            0x00, 0xC2, 0x46,
+            0x00, 0x92, 0x30, 0x60,
+            0x00, 0x3C, 0x60,                               // running status
+            0x00, 0x43, 0x60,                               // running status
+            0x60, 0x91, 0x43, 0x40,
+            0x60, 0x90, 0x4C, 0x20,
+            0x81, 0x40, 0x82, 0x30, 0x40,                   // two-byte delta
+            0x00, 0x3C, 0x40,                               // running status
+            0x00, 0x43, 0x40,                               // running status
+            0x00, 0x81, 0x43, 0x40,
+            0x00, 0x80, 0x4C, 0x40,
+            0x00, 0xFF, 0x2F, 0x00,                         // end of track
+        ];
+
+        let mut iter = RawEventIter::new(&data[..]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 0);
+        assert_eq!(event.bytes, &[0xFF, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 0);
+        assert_eq!(event.bytes, &[0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 0);
+        assert_eq!(event.bytes, &[0xC0, 0x05]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 0);
+        assert_eq!(event.bytes, &[0xC1, 0x2E]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 0);
+        assert_eq!(event.bytes, &[0xC2, 0x46]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 0);
+        assert_eq!(event.bytes, &[0x92, 0x30, 0x60]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 0);
+        assert_eq!(event.bytes, &[0x3C, 0x60]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 0);
+        assert_eq!(event.bytes, &[0x43, 0x60]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 96);
+        assert_eq!(event.bytes, &[0x91, 0x43, 0x40]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 192);
+        assert_eq!(event.bytes, &[0x90, 0x4C, 0x20]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 384);
+        assert_eq!(event.bytes, &[0x82, 0x30, 0x40]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 384);
+        assert_eq!(event.bytes, &[0x3C, 0x40]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 384);
+        assert_eq!(event.bytes, &[0x43, 0x40]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 384);
+        assert_eq!(event.bytes, &[0x81, 0x43, 0x40]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 384);
+        assert_eq!(event.bytes, &[0x80, 0x4C, 0x40]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 384);
+        assert_eq!(event.bytes, &[0xFF, 0x2F, 0x00]);
+
+        assert!(iter.next().is_none());
+        assert!(iter.next().is_none());
+
+        assert_eq!(iter.pos, data.len());
+        assert_eq!(iter.ticks, 384);
     }
 }
 
