@@ -67,6 +67,7 @@ mod seq_tests {
         Track {
             bytes: Vec::new(),
             duration: 0,
+            event_count: 0,
         }
     }
 
@@ -263,10 +264,63 @@ mod div_tests {
 }
 
 /// A MIDI track.
+///
+/// # Examples
+/// ```rust
+/// # fn test() -> Option<()> {
+/// use musnd::midi::Track;
+///
+/// let bytes = vec![
+/// // ------------------------------------
+/// // | delta time | status |    data    |
+/// // ------------------------------------
+///      0x00,        0xC1,    0x2E,        // ch 2, program change 46
+///      0x60,        0x91,    0x45, 0x40,  // ch 2, note on (A4)
+///      0x82, 0x20,           0x45, 0x00,  // running status, note off (A4)
+///      0x00,        0xFF,    0x2F, 0x00,  // end of track
+/// ];
+/// let track = Track::new(bytes)?;
+///
+/// assert_eq!(track.bytes().len(), 15);
+/// assert_eq!(track.duration(), 188);
+/// assert_eq!(track.event_count(), 4);
+///
+/// let mut iter = track.raw_iter();
+///
+/// assert_eq!(iter.size_hint(), (0, Some(4))); // 4 events left
+///
+/// let event = iter.next().unwrap();
+/// assert_eq!(event.bytes, &[0xC1, 0x2E]);
+/// assert_eq!(event.ticks, 0);
+///
+/// assert_eq!(iter.size_hint(), (1, Some(4))); // 3 events left
+///
+/// let event = iter.next().unwrap();
+/// assert_eq!(event.bytes, &[0x91, 0x45, 0x40]);
+/// assert_eq!(event.ticks, 96);
+///
+/// assert_eq!(iter.size_hint(), (2, Some(4))); // 2 events left
+///
+/// let event = iter.next().unwrap();
+/// assert_eq!(event.bytes, &[0x45, 0x00]);
+/// assert_eq!(event.ticks, 188);
+///
+/// assert_eq!(iter.size_hint(), (3, Some(4))); // 1 event left
+///
+/// let event = iter.next().unwrap();
+/// assert_eq!(event.bytes, &[0xFF, 0x2F, 0x00]);
+/// assert_eq!(event.ticks, 188);
+///
+/// assert!(iter.next().is_none());
+/// assert_eq!(iter.size_hint(), (4, Some(4))); // 0 events left
+/// # Some(())
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct Track {
     bytes: Vec<u8>,
     duration: usize,
+    event_count: usize,
 }
 
 impl Track {
@@ -282,16 +336,23 @@ impl Track {
             return None;
         }
 
-        let duration = {
-            let mut iter = RawEventIter::new(&bytes[..]);
-            while let Some(_) = iter.next() {}
+        let (duration, event_count) = {
+            let mut iter = RawEventIter::new(&bytes[..],  None);
+            let mut count = 0usize;
+            while let Some(_) = iter.next() {
+                count += 1;
+            }
             if iter.pos != len {
                 return None;
             }
-            iter.ticks
+            (iter.ticks, count)
         };
 
-        Some(Track { bytes, duration })
+        Some(Track {
+            bytes,
+            duration,
+            event_count,
+        })
     }
 
     /// Returns raw MIDI data.
@@ -302,6 +363,16 @@ impl Track {
     /// Returns total track duration in ticks.
     pub fn duration(&self) -> usize {
         self.duration
+    }
+
+    /// Returns number of events stored within the track.
+    pub fn event_count(&self) -> usize {
+        self.event_count
+    }
+
+    /// Returns a new raw event iterator.
+    pub fn raw_iter<'a>(&'a self) -> RawEventIter<'a> {
+        RawEventIter::new(&self.bytes[..], Some(self.event_count))
     }
 }
 
@@ -317,7 +388,7 @@ mod track_tests {
     }
 
     #[test]
-    fn new_sets_duration() {
+    fn new_sets_duration_and_event_count() {
         let data = vec![
             0x00, 0xC0, 0x60,       // delta time  0, ticks  0
             0x10, 0x90, 0x60, 0x60, // delta time 16, ticks 16
@@ -327,6 +398,16 @@ mod track_tests {
         let track = Track::new(data).unwrap();
 
         assert_eq!(track.duration(), 48);
+        assert_eq!(track.event_count(), 4);
+    }
+
+    #[test]
+    fn new_sets_duration_and_event_count2() {
+        let data = vec![0x00, 0xC1, 0x23, 0x45, 0xFF, 0x2F, 0x00];
+        let track = Track::new(data).unwrap();
+
+        assert_eq!(track.duration(), 69);
+        assert_eq!(track.event_count(), 2);
     }
 
     #[test]
@@ -348,9 +429,44 @@ mod track_tests {
     fn new_fails_on_bad_data4() {
         assert!(Track::new(vec![0x00, 0x00, 0xFF, 0x2F, 0x00]).is_none());
     }
+
+    #[test]
+    fn raw_iter_iterates_through_events() {
+        let data = vec![0x00, 0xC0, 0x10, 0x10, 0xFF, 0x2F, 0x00];
+        let track = Track::new(data).unwrap();
+
+        let mut iter = track.raw_iter();
+
+        assert_eq!(iter.size_hint(), (0, Some(2)));
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 0);
+        assert_eq!(event.bytes, &[0xC0, 0x10]);
+
+        let event = iter.next().unwrap();
+        assert_eq!(event.ticks, 16);
+        assert_eq!(event.bytes, &[0xFF, 0x2F, 0x00]);
+
+        assert!(iter.next().is_none());
+    }
 }
 
-/// Represents a raw MIDI event.
+/// Represents a raw MIDI event stored within a `Track`.
+///
+/// Raw events can be obtained by calling `next()` method of `RawEventIter`
+/// object returned by `raw_iter()` method of the track.
+///
+/// # Examples
+/// ```rust
+/// # use musnd::midi::Track;
+/// # let data = vec![0x00, 0xC0, 0x05, 0x00, 0xFF, 0x2F, 0x00];
+/// # let track = Track::new(data).unwrap();
+/// let mut iter = track.raw_iter();
+///
+/// let event = iter.next().unwrap();
+/// assert_eq!(event.bytes, &[0xC0, 0x05]); // program change (5), channel 1
+/// assert_eq!(event.ticks, 0);             // happens at 0th tick
+/// ```
 pub struct RawEvent<'a> {
     /// Raw MIDI message.
     pub bytes: &'a [u8],
@@ -553,18 +669,45 @@ mod raw_event_tests {
     }
 }
 
-/// A raw MIDI data iterator.
+/// An iterator for raw MIDI events stored within a `Track`.
+///
+/// A new iterator can be obtained using `raw_iter()` method of a track.
+/// The number of retrieved events and the total number of events within the
+/// iterator can be obtained using `size_hint()` method.
+///
+/// # Examples
+/// ```rust
+/// # use musnd::midi::Track;
+/// # let data = vec![0x00, 0xC0, 0x05, 0x10, 0xFF, 0x2F, 0x00];
+/// # let track = Track::new(data).unwrap();
+/// let mut iter = track.raw_iter(); // the track contains two events
+///
+/// assert_eq!(iter.size_hint(), (0, Some(2)));
+///
+/// assert!(iter.next().is_some()); // consume the first event
+/// assert_eq!(iter.size_hint(), (1, Some(2)));
+///
+/// assert!(iter.next().is_some()); // consume the second event
+/// assert_eq!(iter.size_hint(), (2, Some(2)));
+///
+/// assert!(iter.next().is_none()); // no more events left
+/// assert_eq!(iter.size_hint(), (2, Some(2)));
+/// ```
 pub struct RawEventIter<'a> {
     data: &'a [u8],
-    pos: usize,   // current  position within data
-    ticks: usize, // current time from the beginning in ticks
-    status: u8,   // current (running) status
+    lbound: usize,         // current lower bound
+    ubound: Option<usize>, // current upper bound
+    pos: usize,            // current byte position within data
+    ticks: usize,          // current time from the beginning in ticks
+    status: u8,            // current (running) status
 }
 
 impl<'a> RawEventIter<'a> {
-    fn new(data: &'a [u8]) -> RawEventIter<'a> {
+    fn new(data: &'a [u8], ubound: Option<usize>) -> RawEventIter<'a> {
         RawEventIter {
             data,
+            lbound: 0,
+            ubound,
             pos: 0,
             ticks: 0,
             status: 0,
@@ -583,7 +726,17 @@ impl<'a> Iterator for RawEventIter<'a> {
         if is_status(event.bytes[0]) {
             self.status = event.bytes[0];
         }
+        self.lbound += 1;
         Some(event)
+    }
+
+    /// Returns bounds of the remaining length of the iterator.
+    ///
+    /// Returns a tuple where the first element is the number of events already
+    /// retrieved via `next()` method and the second element is the total
+    /// number of events that can be retreived from this iterator.
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.lbound, self.ubound)
     }
 }
 
@@ -612,73 +765,111 @@ mod raw_event_iter_tests {
             0x00, 0xFF, 0x2F, 0x00,                         // end of track
         ];
 
-        let mut iter = RawEventIter::new(&data[..]);
+        let ubound = Some(16usize);
+        let mut iter = RawEventIter::new(&data[..], ubound);
+
+        assert_eq!(iter.size_hint(), (0, ubound));
 
         let event = iter.next().unwrap();
         assert_eq!(event.ticks, 0);
         assert_eq!(event.bytes, &[0xFF, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08]);
 
+        assert_eq!(iter.size_hint(), (1, ubound));
+
         let event = iter.next().unwrap();
         assert_eq!(event.ticks, 0);
         assert_eq!(event.bytes, &[0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20]);
+
+        assert_eq!(iter.size_hint(), (2, ubound));
 
         let event = iter.next().unwrap();
         assert_eq!(event.ticks, 0);
         assert_eq!(event.bytes, &[0xC0, 0x05]);
 
+        assert_eq!(iter.size_hint(), (3, ubound));
+
         let event = iter.next().unwrap();
         assert_eq!(event.ticks, 0);
         assert_eq!(event.bytes, &[0xC1, 0x2E]);
+
+        assert_eq!(iter.size_hint(), (4, ubound));
 
         let event = iter.next().unwrap();
         assert_eq!(event.ticks, 0);
         assert_eq!(event.bytes, &[0xC2, 0x46]);
 
+        assert_eq!(iter.size_hint(), (5, ubound));
+
         let event = iter.next().unwrap();
         assert_eq!(event.ticks, 0);
         assert_eq!(event.bytes, &[0x92, 0x30, 0x60]);
+
+        assert_eq!(iter.size_hint(), (6, ubound));
 
         let event = iter.next().unwrap();
         assert_eq!(event.ticks, 0);
         assert_eq!(event.bytes, &[0x3C, 0x60]);
 
+        assert_eq!(iter.size_hint(), (7, ubound));
+
         let event = iter.next().unwrap();
         assert_eq!(event.ticks, 0);
         assert_eq!(event.bytes, &[0x43, 0x60]);
+
+        assert_eq!(iter.size_hint(), (8, ubound));
 
         let event = iter.next().unwrap();
         assert_eq!(event.ticks, 96);
         assert_eq!(event.bytes, &[0x91, 0x43, 0x40]);
 
+        assert_eq!(iter.size_hint(), (9, ubound));
+
         let event = iter.next().unwrap();
         assert_eq!(event.ticks, 192);
         assert_eq!(event.bytes, &[0x90, 0x4C, 0x20]);
+
+        assert_eq!(iter.size_hint(), (10, ubound));
 
         let event = iter.next().unwrap();
         assert_eq!(event.ticks, 384);
         assert_eq!(event.bytes, &[0x82, 0x30, 0x40]);
 
+        assert_eq!(iter.size_hint(), (11, ubound));
+
         let event = iter.next().unwrap();
         assert_eq!(event.ticks, 384);
         assert_eq!(event.bytes, &[0x3C, 0x40]);
+
+        assert_eq!(iter.size_hint(), (12, ubound));
 
         let event = iter.next().unwrap();
         assert_eq!(event.ticks, 384);
         assert_eq!(event.bytes, &[0x43, 0x40]);
 
+        assert_eq!(iter.size_hint(), (13, ubound));
+
         let event = iter.next().unwrap();
         assert_eq!(event.ticks, 384);
         assert_eq!(event.bytes, &[0x81, 0x43, 0x40]);
+
+        assert_eq!(iter.size_hint(), (14, ubound));
 
         let event = iter.next().unwrap();
         assert_eq!(event.ticks, 384);
         assert_eq!(event.bytes, &[0x80, 0x4C, 0x40]);
 
+        assert_eq!(iter.size_hint(), (15, ubound));
+
         let event = iter.next().unwrap();
         assert_eq!(event.ticks, 384);
         assert_eq!(event.bytes, &[0xFF, 0x2F, 0x00]);
 
+        assert_eq!(iter.size_hint(), (16, ubound));
+
         assert!(iter.next().is_none());
+
+        assert_eq!(iter.size_hint(), (16, ubound));
+
         assert!(iter.next().is_none());
 
         assert_eq!(iter.pos, data.len());
@@ -712,6 +903,7 @@ fn vlq(data: &[u8], pos: usize) -> Option<(usize, usize)> {
 //
 // Call this function only if `is_ch_msg(status)` returns `true`.
 fn ch_msg_len(status: u8) -> usize {
+    debug_assert!(is_ch_msg(status), "channel message expected");
     let status = status >> 4;
     if status > 0b1011 && status < 0b1110 {
         // Program Change; Channel Pressure
@@ -726,6 +918,7 @@ fn ch_msg_len(status: u8) -> usize {
 //
 // Call this function only if `is_sys_msg(data[pos])` returns `true`.
 fn sys_msg_len(data: &[u8], pos: usize) -> Option<usize> {
+    debug_assert!(is_sys_msg(data[pos]), "system message expected");
     match data[pos] {
         0xF0 => {
             // System Exclusive
@@ -748,6 +941,7 @@ fn sys_msg_len(data: &[u8], pos: usize) -> Option<usize> {
 //
 // Call this function only if `is_meta_msg(data[pos])` returns `true`.
 fn meta_msg_len(data: &[u8], pos: usize) -> Option<usize> {
+    debug_assert!(is_meta_msg(data[pos]), "meta message expected");
     let (data_len, len_len) = vlq(data, pos + 2)?;
     Some(data_len + len_len + 2)
 }
