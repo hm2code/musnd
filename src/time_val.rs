@@ -26,17 +26,20 @@ impl Pair {
     /// # Panics
     ///
     /// If `time` is negative.
+    #[inline]
     pub fn new(time: f32, value: f32) -> Pair {
         assert!(time >= 0.0, "time can't be negative: {}", time);
         Pair { time, value }
     }
 
     /// Returns time stored within `self`.
+    #[inline]
     pub fn time(&self) -> f32 {
         self.time
     }
 
     /// Returns value stored within `self`.
+    #[inline]
     pub fn value(&self) -> f32 {
         self.value
     }
@@ -139,21 +142,25 @@ impl Seq {
     }
 
     /// Extracts a slice containing the entire sequence.
+    #[inline]
     pub fn as_slice(&self) -> &[Pair] {
         self.pairs.as_slice()
     }
 
     /// Returns time duration of `self`. The complexity is `O(1)`.
+    #[inline]
     pub fn duration(&self) -> f32 {
         self.duration
     }
 
     /// Returns minimal value within `self`. The complexity is `O(1)`.
+    #[inline]
     pub fn min(&self) -> f32 {
         self.min
     }
 
     /// Returns maximal value within `self`. The complexity is `O(1)`.
+    #[inline]
     pub fn max(&self) -> f32 {
         self.max
     }

@@ -20,6 +20,7 @@ impl U3 {
     /// assert_eq!(U3::try_from(0x07), Some(U3::from(0x07)));
     /// assert_eq!(U3::try_from(0xFF), None);
     /// ```
+    #[inline]
     pub fn try_from(v: u8) -> Option<U3> {
         if v & !U3::MAX == 0 {
             Some(U3(v))
@@ -44,12 +45,14 @@ impl From<u8> for U3 {
     /// let v = U3::from(0xFF);
     /// assert_eq!(u8::from(v), 0x07);
     /// ```
+    #[inline]
     fn from(v: u8) -> U3 {
         U3(v & U3::MAX)
     }
 }
 
 impl From<U3> for u8 {
+    #[inline]
     fn from(v: U3) -> u8 {
         v.0
     }
@@ -94,6 +97,7 @@ impl U4 {
     /// assert_eq!(U4::try_from(0x0F), Some(U4::from(0x0F)));
     /// assert_eq!(U4::try_from(0xFF), None);
     /// ```
+    #[inline]
     pub fn try_from(v: u8) -> Option<U4> {
         if v & !U4::MAX == 0 {
             Some(U4(v))
@@ -118,12 +122,14 @@ impl From<u8> for U4 {
     /// let v = U4::from(0xAB);
     /// assert_eq!(u8::from(v), 0x0B);
     /// ```
+    #[inline]
     fn from(v: u8) -> U4 {
         U4(v & U4::MAX)
     }
 }
 
 impl From<U4> for u8 {
+    #[inline]
     fn from(v: U4) -> u8 {
         v.0
     }
@@ -168,6 +174,7 @@ impl U7 {
     /// assert_eq!(U7::try_from(0x7F), Some(U7::from(0x7F)));
     /// assert_eq!(U7::try_from(0x80), None);
     /// ```
+    #[inline]
     pub fn try_from(v: u8) -> Option<U7> {
         if v & !U7::MAX == 0 {
             Some(U7(v))
@@ -192,12 +199,14 @@ impl From<u8> for U7 {
     /// let v = U7::from(0xFF);
     /// assert_eq!(u8::from(v), 0x7F);
     /// ```
+    #[inline]
     fn from(v: u8) -> U7 {
         U7(v & U7::MAX)
     }
 }
 
 impl From<U7> for u8 {
+    #[inline]
     fn from(v: U7) -> u8 {
         v.0
     }
@@ -242,6 +251,7 @@ impl U14 {
     /// let msb = U7::from(0b0101_0101);
     /// assert_eq!(U14::new(lsb, msb), U14::from(0b0010_1010_1010_1010));
     /// ```
+    #[inline]
     pub fn new(lsb: U7, msb: U7) -> U14 {
         let lsb = u8::from(lsb) as u16;
         let msb = u8::from(msb) as u16;
@@ -261,6 +271,7 @@ impl U14 {
     /// assert_eq!(U14::try_from(0x3FFF), Some(U14::from(0x3FFF)));
     /// assert_eq!(U14::try_from(0x4000), None);
     /// ```
+    #[inline]
     pub fn try_from(v: u16) -> Option<U14> {
         if v & !U14::MAX == 0 {
             Some(U14(v))
@@ -285,12 +296,14 @@ impl From<u16> for U14 {
     /// let v = U14::from(0xFFFF);
     /// assert_eq!(u16::from(v), 0x3FFF);
     /// ```
+    #[inline]
     fn from(v: u16) -> U14 {
         U14(v & U14::MAX)
     }
 }
 
 impl From<U14> for u16 {
+    #[inline]
     fn from(v: U14) -> u16 {
         v.0
     }
@@ -345,6 +358,7 @@ impl U15 {
     /// assert_eq!(U15::try_from(0x7FFF), Some(U15::from(0x7FFF)));
     /// assert_eq!(U15::try_from(0x8000), None);
     /// ```
+    #[inline]
     pub fn try_from(v: u16) -> Option<U15> {
         if v & !U15::MAX == 0 {
             Some(U15(v))
@@ -369,12 +383,14 @@ impl From<u16> for U15 {
     /// let v = U15::from(0xFFFF);
     /// assert_eq!(u16::from(v), 0x7FFF);
     /// ```
+    #[inline]
     fn from(v: u16) -> U15 {
         U15(v & U15::MAX)
     }
 }
 
 impl From<U15> for u16 {
+    #[inline]
     fn from(v: U15) -> u16 {
         v.0
     }

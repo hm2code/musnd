@@ -129,6 +129,7 @@ impl Pitch {
     /// assert_eq!(Pitch::MIN.octave(), -1);
     /// assert_eq!(Pitch::MAX.octave(), 9);
     /// ```
+    #[inline]
     pub fn octave(&self) -> i32 {
         self.0 as i32 / 12 - 1
     }
@@ -149,24 +150,28 @@ impl Pitch {
     /// #     try_main().unwrap();
     /// # }
     /// ```
+    #[inline]
     pub fn freq(&self) -> f32 {
         440.0 * 2_f32.powf((self.0 as f32 - 69.0) / 12.0)
     }
 }
 
 impl From<U7> for Pitch {
+    #[inline]
     fn from(value: U7) -> Self {
         Pitch(u8::from(value))
     }
 }
 
 impl From<Pitch> for U7 {
+    #[inline]
     fn from(pitch: Pitch) -> Self {
         U7::from(pitch.0)
     }
 }
 
 impl From<Pitch> for u8 {
+    #[inline]
     fn from(pitch: Pitch) -> Self {
         pitch.0
     }
@@ -179,6 +184,7 @@ impl fmt::Display for Pitch {
 }
 
 impl From<Pitch> for String {
+    #[inline]
     fn from(pitch: Pitch) -> Self {
         pitch.to_string()
     }
@@ -503,6 +509,7 @@ impl PitchClass {
     /// assert_eq!(PitchClass::C.as_str(), "C");
     /// assert_eq!(PitchClass::CSharp.as_str(), "C#");
     /// ```
+    #[inline]
     pub fn as_str(&self) -> &str {
         [
             "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
@@ -518,6 +525,7 @@ impl PitchClass {
     /// assert_eq!(PitchClass::C.as_str_flat(), "C");
     /// assert_eq!(PitchClass::CSharp.as_str_flat(), "Db");
     /// ```
+    #[inline]
     pub fn as_str_flat(&self) -> &str {
         [
             "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"
@@ -578,6 +586,7 @@ impl From<Pitch> for PitchClass {
     /// #     try_main().unwrap();
     /// # }
     /// ```
+    #[inline]
     fn from(pitch: Pitch) -> Self {
         unsafe { mem::transmute::<u8, PitchClass>(pitch.0 % 12) }
     }
@@ -615,11 +624,9 @@ impl FromStr for PitchClass {
     /// #     try_main().unwrap();
     /// # }
     /// ```
+    #[inline]
     fn from_str(s: &str) -> Result<PitchClass> {
-        match Pitch::from_str(s) {
-            Ok(pitch) => Ok(PitchClass::from(pitch)),
-            Err(err) => Err(err),
-        }
+        Ok(PitchClass::from(Pitch::from_str(s)?))
     }
 }
 
@@ -636,6 +643,7 @@ impl Add<i32> for PitchClass {
     /// assert_eq!(PitchClass::C + 5, PitchClass::F);
     /// assert_eq!(PitchClass::C + 15, PitchClass::DSharp);
     /// ```
+    #[inline]
     fn add(self, rhs: i32) -> PitchClass {
         let pclass = (((self as i32 + rhs) % 12) + 12) % 12;
         unsafe { mem::transmute(pclass as u8) }
@@ -655,6 +663,7 @@ impl Sub<i32> for PitchClass {
     /// assert_eq!(PitchClass::C - 5, PitchClass::G);
     /// assert_eq!(PitchClass::C - 15, PitchClass::A);
     /// ```
+    #[inline]
     fn sub(self, rhs: i32) -> PitchClass {
         self + (-rhs)
     }
@@ -683,6 +692,7 @@ impl Sub<PitchClass> for PitchClass {
     /// assert_eq!(up, 8);   // 8 semitones up from E to C
     /// assert_eq!(down, 4); // 4 semitones down from E to C
     /// ```
+    #[inline]
     fn sub(self, rhs: PitchClass) -> (i32, i32) {
         let lhs = self as i32;
         let rhs = rhs as i32;

@@ -28,21 +28,25 @@ impl Seq {
     }
 
     /// Returns the division.
+    #[inline]
     pub fn div(&self) -> Div {
         self.div
     }
 
     /// Returns the number of tracks.
+    #[inline]
     pub fn track_count(&self) -> usize {
         self.tracks.len()
     }
 
     /// Returns the duration in ticks.
+    #[inline]
     pub fn duration(&self) -> usize {
         0
     }
 
     /// Returns the tracks.
+    #[inline]
     pub fn tracks(&self) -> &[Track] {
         &self.tracks[..]
     }
@@ -52,6 +56,7 @@ impl Seq {
     /// # Returns
     /// Returns an index that can be used to locate the `track` within a slice
     /// returned by `tracks()` method.
+    #[inline]
     pub fn add(&mut self, track: Track) -> usize {
         self.tracks.push(track);
         self.tracks.len() - 1
@@ -356,21 +361,25 @@ impl Track {
     }
 
     /// Returns raw MIDI data.
+    #[inline]
     pub fn bytes(&self) -> &[u8] {
         &self.bytes[..]
     }
 
     /// Returns total track duration in ticks.
+    #[inline]
     pub fn duration(&self) -> usize {
         self.duration
     }
 
     /// Returns number of events stored within the track.
+    #[inline]
     pub fn event_count(&self) -> usize {
         self.event_count
     }
 
     /// Returns a new raw event iterator.
+    #[inline]
     pub fn raw_iter<'a>(&'a self) -> RawEventIter<'a> {
         RawEventIter::new(&self.bytes[..], Some(self.event_count))
     }
@@ -735,6 +744,7 @@ impl<'a> Iterator for RawEventIter<'a> {
     /// Returns a tuple where the first element is the number of events already
     /// retrieved via `next()` method and the second element is the total
     /// number of events that can be retreived from this iterator.
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.lbound, self.ubound)
     }
