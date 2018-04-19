@@ -9,6 +9,7 @@ use bits::U15;
 pub struct Seq {
     tracks: Vec<Track>,
     div: Div,
+    duration: usize,
 }
 
 impl Seq {
@@ -23,6 +24,7 @@ impl Seq {
             Some(Seq {
                 tracks: Vec::new(),
                 div,
+                duration: 0,
             })
         }
     }
@@ -42,7 +44,7 @@ impl Seq {
     /// Returns the duration in ticks.
     #[inline]
     pub fn duration(&self) -> usize {
-        0
+        self.duration
     }
 
     /// Returns the tracks.
@@ -56,10 +58,15 @@ impl Seq {
     /// # Returns
     /// Returns an index that can be used to locate the `track` within a slice
     /// returned by `tracks()` method.
-    #[inline]
     pub fn add(&mut self, track: Track) -> usize {
         self.tracks.push(track);
+        self.duration = self.calc_duration();
         self.tracks.len() - 1
+    }
+
+    // Calculates duration of the sequence.
+    fn calc_duration(&self) -> usize {
+        self.tracks.iter().map(|t| t.duration()).max().unwrap()
     }
 }
 
@@ -146,6 +153,42 @@ mod seq_tests {
         seq.add(new_empty_track());
 
         assert_eq!(seq.tracks().len(), 1);
+    }
+
+    #[test]
+    fn add_updates_duration() {
+        let mut seq = Seq::new(Div::PPQ(U15::from(96))).unwrap();
+        seq.add(Track::new(vec![
+            0x7F, 0xFF, 0x2F, 0x00, // end of track @ 127th tick
+        ]).unwrap());
+
+        assert_eq!(seq.duration(), 127);
+    }
+
+    #[test]
+    fn add_updates_duration2() {
+        let mut seq = Seq::new(Div::PPQ(U15::from(96))).unwrap();
+        seq.add(Track::new(vec![
+            0x20, 0xFF, 0x2F, 0x00, // end of track @ 32nd tick
+        ]).unwrap());
+        seq.add(Track::new(vec![
+            0x50, 0xFF, 0x2F, 0x00, // end of track @ 80th tick
+        ]).unwrap());
+
+        assert_eq!(seq.duration(), 80);
+    }
+
+    #[test]
+    fn add_updates_duration3() {
+        let mut seq = Seq::new(Div::PPQ(U15::from(96))).unwrap();
+        seq.add(Track::new(vec![
+            0x40, 0xFF, 0x2F, 0x00, // end of track @ 64th tick
+        ]).unwrap());
+        seq.add(Track::new(vec![
+            0x30, 0xFF, 0x2F, 0x00, // end of track @ 48th tick
+        ]).unwrap());
+
+        assert_eq!(seq.duration(), 64);
     }
 
     #[test]
