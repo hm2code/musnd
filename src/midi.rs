@@ -539,8 +539,7 @@ impl<'a> RawEvent<'a> {
 
         let msg_start = pos + ticks_len;
         if msg_start < data.len() {
-            let status = unsafe { data.get_unchecked(msg_start) };
-            let status = *status;
+            let status = *unsafe { data.get_unchecked(msg_start) };
             let msg_len = if is_status(status) {
                 if is_ch_msg(status) {
                     ch_msg_len(status)
@@ -779,8 +778,7 @@ impl<'a> Iterator for RawEventIter<'a> {
             RawEvent::parse(self.data, self.pos, self.ticks, self.status)?;
         self.pos += count;
         self.ticks = event.ticks;
-        let event_first_byte = unsafe { event.bytes.get_unchecked(0) };
-        let event_first_byte = *event_first_byte;
+        let event_first_byte = *unsafe { event.bytes.get_unchecked(0) };
         if is_status(event_first_byte) {
             self.status = event_first_byte;
         }
@@ -947,8 +945,7 @@ fn is_status(byte: u8) -> bool {
 fn vlq(data: &[u8], pos: usize) -> Option<(usize, usize)> {
     let mut value = 0usize;
     for i in pos..cmp::min(pos + 4, data.len()) {
-        let byte = unsafe { data.get_unchecked(i) };
-        let byte = *byte;
+        let byte = *unsafe { data.get_unchecked(i) };
         let bits7 = byte & 0x7F;
         value = value << 7 | bits7 as usize;
         if byte == bits7 {
@@ -979,13 +976,13 @@ fn ch_msg_len(status: u8) -> usize {
 // Call this function only if `is_sys_msg(data[pos])` returns `true`.
 fn sys_msg_len(data: &[u8], pos: usize) -> Option<usize> {
     debug_assert!(is_sys_msg(data[pos]), "system message expected");
-    let data_at_pos = unsafe { data.get_unchecked(pos) };
-    match *data_at_pos {
+    let data_at_pos = *unsafe { data.get_unchecked(pos) };
+    match data_at_pos {
         0xF0 => {
             // System Exclusive
             for i in (pos + 1)..data.len() {
-                let data_at_i = unsafe { data.get_unchecked(i) };
-                if *data_at_i == 0xF7 {
+                let data_at_i = *unsafe { data.get_unchecked(i) };
+                if data_at_i == 0xF7 {
                     return Some(i - pos + 1);
                 }
             }
