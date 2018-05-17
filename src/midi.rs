@@ -390,7 +390,7 @@ impl Track {
             while let Some(_) = iter.next() {
                 count += 1;
             }
-            if iter.pos != len {
+            if iter.data.len() > 0 {
                 return None;
             }
             (iter.ticks, count)
@@ -527,26 +527,25 @@ pub struct RawEvent<'a> {
 }
 
 impl<'a> RawEvent<'a> {
-    // Parses `data` starting at `pos` index and returns `RawEvent` and its
-    // number of bytes within the data.
+    // Parses `data` and returns `RawEvent` and its number of bytes within
+    // the data.
     fn parse(
         data: &'a [u8],
-        pos: usize,
         prev_ticks: usize, // ticks value of the previous event
         prev_status: u8,   // status of the previous event
     ) -> Option<(RawEvent, usize)> {
-        let (delta_ticks, ticks_len) = vlq(data, pos)?;
+        let (delta_ticks, ticks_len) = vlq(data)?;
 
-        let msg_start = pos + ticks_len;
+        let msg_start = ticks_len;
         if msg_start < data.len() {
             let status = data[msg_start];
             let msg_len = if is_status(status) {
                 if is_ch_msg(status) {
                     ch_msg_len(status)
                 } else if is_sys_msg(status) {
-                    sys_msg_len(data, msg_start)?
+                    sys_msg_len(&data[msg_start..])?
                 } else if is_meta_msg(status) {
-                    meta_msg_len(data, msg_start)?
+                    meta_msg_len(&data[msg_start..])?
                 } else {
                     // Bad data: unknown status byte
                     return None;
@@ -595,7 +594,7 @@ mod raw_event_tests {
 
     #[test]
     fn parse_note_off() {
-        let (event, count) = RawEvent::parse(&DATA[..], 0, 0, 0).unwrap();
+        let (event, count) = RawEvent::parse(&DATA[..], 0, 0).unwrap();
 
         assert_eq!(count, 4);
         assert_eq!(event.ticks, 1);
@@ -604,7 +603,7 @@ mod raw_event_tests {
 
     #[test]
     fn parse_note_on() {
-        let (event, count) = RawEvent::parse(&DATA[..], 4, 0, 0).unwrap();
+        let (event, count) = RawEvent::parse(&DATA[4..], 0, 0).unwrap();
 
         assert_eq!(count, 4);
         assert_eq!(event.ticks, 2);
@@ -613,7 +612,7 @@ mod raw_event_tests {
 
     #[test]
     fn parse_poly_key_press() {
-        let (event, count) = RawEvent::parse(&DATA[..], 8, 0, 0).unwrap();
+        let (event, count) = RawEvent::parse(&DATA[8..], 0, 0).unwrap();
 
         assert_eq!(count, 4);
         assert_eq!(event.ticks, 3);
@@ -622,7 +621,7 @@ mod raw_event_tests {
 
     #[test]
     fn parse_control() {
-        let (event, count) = RawEvent::parse(&DATA[..], 12, 0, 0).unwrap();
+        let (event, count) = RawEvent::parse(&DATA[12..], 0, 0).unwrap();
 
         assert_eq!(count, 4);
         assert_eq!(event.ticks, 4);
@@ -631,7 +630,7 @@ mod raw_event_tests {
 
     #[test]
     fn parse_program() {
-        let (event, count) = RawEvent::parse(&DATA[..], 16, 0, 0).unwrap();
+        let (event, count) = RawEvent::parse(&DATA[16..], 0, 0).unwrap();
 
         assert_eq!(count, 3);
         assert_eq!(event.ticks, 5);
@@ -640,7 +639,7 @@ mod raw_event_tests {
 
     #[test]
     fn parse_channel_press() {
-        let (event, count) = RawEvent::parse(&DATA[..], 19, 0, 0).unwrap();
+        let (event, count) = RawEvent::parse(&DATA[19..], 0, 0).unwrap();
 
         assert_eq!(count, 3);
         assert_eq!(event.ticks, 6);
@@ -649,7 +648,7 @@ mod raw_event_tests {
 
     #[test]
     fn parse_channel_pitch_bend() {
-        let (event, count) = RawEvent::parse(&DATA[..], 22, 0, 0).unwrap();
+        let (event, count) = RawEvent::parse(&DATA[22..], 0, 0).unwrap();
 
         assert_eq!(count, 4);
         assert_eq!(event.ticks, 7);
@@ -658,7 +657,7 @@ mod raw_event_tests {
 
     #[test]
     fn parse_control_ch2() {
-        let (event, count) = RawEvent::parse(&DATA[..], 26, 0, 0).unwrap();
+        let (event, count) = RawEvent::parse(&DATA[26..], 0, 0).unwrap();
 
         assert_eq!(count, 4);
         assert_eq!(event.ticks, 8);
@@ -667,7 +666,7 @@ mod raw_event_tests {
 
     #[test]
     fn parse_control_running_status() {
-        let (event, count) = RawEvent::parse(&DATA[..], 30, 0, 0xB1).unwrap();
+        let (event, count) = RawEvent::parse(&DATA[30..], 0, 0xB1).unwrap();
 
         assert_eq!(count, 3);
         assert_eq!(event.ticks, 9);
@@ -676,7 +675,7 @@ mod raw_event_tests {
 
     #[test]
     fn parse_system() {
-        let (event, count) = RawEvent::parse(&DATA[..], 33, 0, 0).unwrap();
+        let (event, count) = RawEvent::parse(&DATA[33..], 0, 0).unwrap();
 
         assert_eq!(count, 4);
         assert_eq!(event.ticks, 10);
@@ -685,7 +684,7 @@ mod raw_event_tests {
 
     #[test]
     fn parse_meta() {
-        let (event, count) = RawEvent::parse(&DATA[..], 37, 0, 0).unwrap();
+        let (event, count) = RawEvent::parse(&DATA[37..], 0, 0).unwrap();
 
         assert_eq!(count, 4);
         assert_eq!(event.ticks, 11);
@@ -696,7 +695,7 @@ mod raw_event_tests {
     fn parse_reads_ticks_vlq() {
         let data: [u8; 5] = [0x81, 0x40, 0x80, 0x40, 0x7F];
 
-        let (event, count) = RawEvent::parse(&data[..], 0, 0, 0).unwrap();
+        let (event, count) = RawEvent::parse(&data[..], 0, 0).unwrap();
 
         assert_eq!(count, 5);
         assert_eq!(event.ticks, 192);
@@ -705,20 +704,20 @@ mod raw_event_tests {
 
     #[test]
     fn parse_fails_on_bad_vlq() {
-        assert!(RawEvent::parse(&[0xFF], 0, 0, 0).is_none());
+        assert!(RawEvent::parse(&[0xFF], 0, 0).is_none());
     }
 
     #[test]
     fn parse_fails_on_bad_data() {
-        assert!(RawEvent::parse(&[], 0, 0, 0).is_none());
-        assert!(RawEvent::parse(&[0x00], 0, 0, 0).is_none());
-        assert!(RawEvent::parse(&[0x00, 0x80], 0, 0, 0).is_none());
-        assert!(RawEvent::parse(&[0x00, 0xF9], 0, 0, 0).is_none());
+        assert!(RawEvent::parse(&[], 0, 0).is_none());
+        assert!(RawEvent::parse(&[0x00], 0, 0).is_none());
+        assert!(RawEvent::parse(&[0x00, 0x80], 0, 0).is_none());
+        assert!(RawEvent::parse(&[0x00, 0xF9], 0, 0).is_none());
     }
 
     #[test]
     fn parse_fails_on_bad_running_status() {
-        assert!(RawEvent::parse(&DATA[..], 30, 0, 0xFF).is_none());
+        assert!(RawEvent::parse(&DATA[38..], 0, 0xFF).is_none());
     }
 }
 
@@ -750,7 +749,6 @@ pub struct RawEventIter<'a> {
     data: &'a [u8],
     lbound: usize,         // current lower bound
     ubound: Option<usize>, // current upper bound
-    pos: usize,            // current byte position within data
     ticks: usize,          // current time from the beginning in ticks
     status: u8,            // current (running) status
 }
@@ -761,7 +759,6 @@ impl<'a> RawEventIter<'a> {
             data,
             lbound: 0,
             ubound,
-            pos: 0,
             ticks: 0,
             status: 0,
         }
@@ -773,8 +770,8 @@ impl<'a> Iterator for RawEventIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let (event, count) =
-            RawEvent::parse(self.data, self.pos, self.ticks, self.status)?;
-        self.pos += count;
+            RawEvent::parse(self.data, self.ticks, self.status)?;
+        self.data = &self.data[count..];
         self.ticks = event.ticks;
         let event_first_byte = event.bytes[0];
         if is_status(event_first_byte) {
@@ -927,7 +924,7 @@ mod raw_event_iter_tests {
 
         assert!(iter.next().is_none());
 
-        assert_eq!(iter.pos, data.len());
+        assert_eq!(iter.data.len(), 0);
         assert_eq!(iter.ticks, 384);
     }
 }
@@ -938,16 +935,16 @@ fn is_status(byte: u8) -> bool {
 }
 
 // Returns the value of Variable-Length Quantity (VLQ) located within the
-// raw data at the specified position and the size the VLQ data in bytes.
+// raw data and the size the VLQ data in bytes.
 // Note: 0x0FFF_FFFF is the largest value allowed by the MIDI spec.
-fn vlq(data: &[u8], pos: usize) -> Option<(usize, usize)> {
+fn vlq(data: &[u8]) -> Option<(usize, usize)> {
     let mut value = 0usize;
-    for i in pos..cmp::min(pos + 4, data.len()) {
+    for i in 0..cmp::min(4, data.len()) {
         let byte = data[i];
         let bits7 = byte & 0x7F;
         value = value << 7 | bits7 as usize;
         if byte == bits7 {
-            return Some((value, i - pos + 1));
+            return Some((value, i + 1));
         }
     }
     None
@@ -968,20 +965,19 @@ fn ch_msg_len(status: u8) -> usize {
     }
 }
 
-// Returns total length of a system message that starts within `data` at `pos`
-// index.
+// Returns total length of a system message within `data`.
 //
-// Call this function only if `is_sys_msg(data[pos])` returns `true`.
-fn sys_msg_len(data: &[u8], pos: usize) -> Option<usize> {
-    debug_assert!(is_sys_msg(data[pos]), "system message expected");
-    let data_at_pos = data[pos];
-    match data_at_pos {
+// Call this function only if `is_sys_msg(data[0])` returns `true`.
+fn sys_msg_len(data: &[u8]) -> Option<usize> {
+    debug_assert!(is_sys_msg(data[0]), "system message expected");
+    let data_at_0 = data[0];
+    match data_at_0 {
         0xF0 => {
             // System Exclusive
-            for i in (pos + 1)..data.len() {
+            for i in 1..data.len() {
                 let data_at_i = data[i];
                 if data_at_i == 0xF7 {
-                    return Some(i - pos + 1);
+                    return Some(i + 1);
                 }
             }
             None
@@ -993,13 +989,15 @@ fn sys_msg_len(data: &[u8], pos: usize) -> Option<usize> {
     }
 }
 
-// Returns total length of a meta message that starts within `data` at `pos`
-// index.
+// Returns total length of a meta message within `data`.
 //
-// Call this function only if `is_meta_msg(data[pos])` returns `true`.
-fn meta_msg_len(data: &[u8], pos: usize) -> Option<usize> {
-    debug_assert!(is_meta_msg(data[pos]), "meta message expected");
-    let (data_len, len_len) = vlq(data, pos + 2)?;
+// Call this function only if `is_meta_msg(data[0])` returns `true`.
+fn meta_msg_len(data: &[u8]) -> Option<usize> {
+    debug_assert!(is_meta_msg(data[0]), "meta message expected");
+    if data.len() < 2 {
+        return None;
+    }
+    let (data_len, len_len) = vlq(&data[2..])?;
     Some(data_len + len_len + 2)
 }
 
@@ -1031,13 +1029,12 @@ mod tests {
     #[test]
     fn vlq_reads_byte() {
         let data: [u8; 2] = [0, 1];
-        let slice = &data[..];
-        let (value, count) = vlq(slice, 0).unwrap();
+        let (value, count) = vlq(&data[..]).unwrap();
 
         assert_eq!(value, 0);
         assert_eq!(count, 1);
 
-        assert_eq!(vlq(slice, 1), Some((1, 1)));
+        assert_eq!(vlq(&data[1..]), Some((1, 1)));
     }
 
     #[test]
@@ -1047,26 +1044,25 @@ mod tests {
                       0xC0, 0x80, 0x00,         // 0x0010_0000, 3
                       0xFF, 0xFF, 0xFF, 0x7F,   // 0x0FFF_FFFF, 4
         ];
-        let slice = &data[..];
 
-        assert_eq!(vlq(slice, 0), Some((0x0000_0080, 2)));
-        assert_eq!(vlq(slice, 2), Some((0x0010_0000, 3)));
-        assert_eq!(vlq(slice, 5), Some((0x0FFF_FFFF, 4)));
+        assert_eq!(vlq(&data[..]), Some((0x0000_0080, 2)));
+        assert_eq!(vlq(&data[2..]), Some((0x0010_0000, 3)));
+        assert_eq!(vlq(&data[5..]), Some((0x0FFF_FFFF, 4)));
     }
 
     #[test]
     fn vlq_fails_on_overflow() {
-        assert!(vlq(&[0xFF, 0xFF, 0xFF, 0xFF, 0x7F], 0).is_none());
+        assert!(vlq(&[0xFF, 0xFF, 0xFF, 0xFF, 0x7F]).is_none());
     }
 
     #[test]
     fn vlq_fails_on_bad_data() {
-        assert!(vlq(&[0xFF], 0).is_none());
+        assert!(vlq(&[0xFF]).is_none());
     }
 
     #[test]
     fn vlq_fails_on_bad_pos() {
-        assert!(vlq(&[], 123).is_none());
+        assert!(vlq(&[]).is_none());
     }
 
     #[test]
@@ -1106,77 +1102,67 @@ mod tests {
 
     #[test]
     fn sys_msg_len_sysex() {
-        assert_eq!(sys_msg_len(&[0x00, 0xF0, 0xF7, 0x00], 1), Some(2));
-    }
-
-    #[test]
-    fn sys_msg_len_sysex2() {
-        assert_eq!(sys_msg_len(&[0xF0, 0x01, 0x02, 0x03, 0xF7], 0), Some(5));
+        assert_eq!(sys_msg_len(&[0xF0, 0x01, 0x02, 0x03, 0xF7]), Some(5));
     }
 
     #[test]
     fn sys_msg_len_fails_on_bad_sysex() {
-        assert_eq!(sys_msg_len(&[0xF0], 0), None);
+        assert_eq!(sys_msg_len(&[0xF0]), None);
     }
 
     #[test]
     fn sys_msg_len_fails_on_bad_sysex2() {
-        assert_eq!(sys_msg_len(&[0xF0, 0x01, 0x02, 0x03], 0), None);
+        assert_eq!(sys_msg_len(&[0xF0, 0x01, 0x02, 0x03]), None);
     }
 
     #[test]
     fn sys_msg_len_tcqf() {
-        assert_eq!(sys_msg_len(&[0xF1], 0), Some(2));
+        assert_eq!(sys_msg_len(&[0xF1]), Some(2));
     }
 
     #[test]
     fn sys_msg_len_song_pos_ptr() {
-        assert_eq!(sys_msg_len(&[0xF2], 0), Some(3));
+        assert_eq!(sys_msg_len(&[0xF2]), Some(3));
     }
 
     #[test]
     fn sys_msg_len_song_select() {
-        assert_eq!(sys_msg_len(&[0xF3], 0), Some(2));
+        assert_eq!(sys_msg_len(&[0xF3]), Some(2));
     }
 
     #[test]
     fn sys_msg_len_undef1() {
-        assert_eq!(sys_msg_len(&[0xF4], 0), None);
+        assert_eq!(sys_msg_len(&[0xF4]), None);
     }
 
     #[test]
     fn sys_msg_len_undef2() {
-        assert_eq!(sys_msg_len(&[0xF5], 0), None);
+        assert_eq!(sys_msg_len(&[0xF5]), None);
     }
 
     #[test]
     fn sys_msg_len_tune_req() {
-        assert_eq!(sys_msg_len(&[0xF6], 0), Some(1));
+        assert_eq!(sys_msg_len(&[0xF6]), Some(1));
     }
 
     #[test]
     fn sys_msg_len_sysex_end() {
-        assert_eq!(sys_msg_len(&[0xF7], 0), Some(1));
+        assert_eq!(sys_msg_len(&[0xF7]), Some(1));
     }
 
     #[test]
     fn meta_msg_len_works() {
-        assert_eq!(meta_msg_len(&[0xFF, 0x00, 0x81, 0x00], 0), Some(132));
-    }
-
-    #[test]
-    fn meta_msg_len_works2() {
-        assert_eq!(meta_msg_len(&[0x00, 0xFF, 0x01, 0x01], 1), Some(4));
+        assert_eq!(meta_msg_len(&[0xFF, 0x00, 0x81, 0x00]), Some(132));
     }
 
     #[test]
     fn meta_msg_len_fails_on_bad_data() {
-        assert_eq!(meta_msg_len(&[0xFF], 0), None);
+        assert_eq!(meta_msg_len(&[0xFF]), None);
     }
 
     #[test]
     fn meta_msg_len_fails_on_bad_data2() {
-        assert_eq!(meta_msg_len(&[0xFF, 0x00, 0xFF], 0), None);
+        assert_eq!(meta_msg_len(&[0xFF, 0x00, 0xFF]), None);
     }
 
     #[test]
